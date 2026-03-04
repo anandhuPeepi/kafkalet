@@ -33,7 +33,7 @@ export function MessageRatePanel({ profileId, brokerId }: Props) {
     return () => {
       cancelled = true
       EventsOff(eventName)
-      StopRateWatcher()
+      StopRateWatcher(brokerId)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId, brokerId])

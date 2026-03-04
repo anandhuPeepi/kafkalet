@@ -46,6 +46,8 @@ export function GetTopicMetadata(arg1:string,arg2:string,arg3:string):Promise<br
 
 export function ImportSettings():Promise<void>;
 
+export function InvalidateTopicsCache(arg1:string):Promise<void>;
+
 export function ListAllConsumerGroups(arg1:string,arg2:string):Promise<Array<broker.GroupSummary>>;
 
 export function ListConsumerGroups(arg1:string,arg2:string,arg3:string):Promise<Array<broker.GroupLag>>;
@@ -80,7 +82,7 @@ export function StartObserverAtTimestamp(arg1:string,arg2:string,arg3:string,arg
 
 export function StartRateWatcher(arg1:string,arg2:string):Promise<void>;
 
-export function StopRateWatcher():Promise<void>;
+export function StopRateWatcher(arg1:string):Promise<void>;
 
 export function StopSession(arg1:string):Promise<void>;
 

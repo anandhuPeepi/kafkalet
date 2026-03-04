@@ -34,7 +34,7 @@ import { ConsumeDialog } from '@features/topic-consume'
 import { ProduceDialog } from '@features/message-produce'
 import { TopicInfoDialog } from '@features/topic-info'
 import { CreateTopicDialog } from '@features/topic-create'
-import { ListTopics, DeleteTopic, SaveTopicGroup, DeleteTopicGroup, ListProfiles } from '@shared/api'
+import { ListTopics, DeleteTopic, SaveTopicGroup, DeleteTopicGroup, ListProfiles, InvalidateTopicsCache } from '@shared/api'
 
 interface TopicTarget {
   profileId: string
@@ -71,9 +71,10 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
   const broker = profile?.brokers.find((b) => b.id === brokerId)
   const topicGroups = broker?.topicGroups ?? []
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (force?: boolean) => {
     setLoading(true)
     try {
+      if (force) await InvalidateTopicsCache(brokerId)
       const result = await ListTopics(profileId, brokerId)
       setTopics(result ?? [])
     } catch (err) {
@@ -254,7 +255,7 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
           variant="ghost"
           size="icon"
           className="h-7 w-7"
-          onClick={load}
+          onClick={() => load(true)}
           disabled={loading}
           title="Refresh topics"
         >

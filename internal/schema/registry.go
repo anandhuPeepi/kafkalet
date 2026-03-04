@@ -1,6 +1,7 @@
 package schema
 
 import (
+	"container/list"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -9,17 +10,34 @@ import (
 	"sync"
 )
 
+const defaultMaxEntries = 500
+
 // Registry fetches and caches Avro schemas from a Confluent-compatible Schema Registry.
+// Uses an LRU cache with a configurable max size (default 500).
 type Registry struct {
-	url    string
-	auth   string // "user:pass" for Basic auth, empty if unauthenticated
-	cache  sync.Map
-	client *http.Client
+	url        string
+	auth       string // "user:pass" for Basic auth, empty if unauthenticated
+	client     *http.Client
+	mu         sync.Mutex
+	cache      map[int32]*list.Element
+	evictList  *list.List
+	maxEntries int
+}
+
+type lruEntry struct {
+	key   int32
+	value string
 }
 
 // New creates a Registry. Pass empty username/password for unauthenticated access.
 func New(url, username, password string) *Registry {
-	r := &Registry{url: url, client: &http.Client{}}
+	r := &Registry{
+		url:        url,
+		client:     &http.Client{},
+		cache:      make(map[int32]*list.Element),
+		evictList:  list.New(),
+		maxEntries: defaultMaxEntries,
+	}
 	if username != "" {
 		r.auth = base64.StdEncoding.EncodeToString([]byte(username + ":" + password))
 	}
@@ -27,16 +45,43 @@ func New(url, username, password string) *Registry {
 }
 
 // GetSchema returns the Avro schema JSON for the given schema ID.
-// Results are cached for the lifetime of the Registry.
+// Results are cached with LRU eviction.
 func (r *Registry) GetSchema(id int32) (string, error) {
-	if v, ok := r.cache.Load(id); ok {
-		return v.(string), nil
+	r.mu.Lock()
+	if el, ok := r.cache[id]; ok {
+		r.evictList.MoveToFront(el)
+		val := el.Value.(*lruEntry).value
+		r.mu.Unlock()
+		return val, nil
 	}
+	r.mu.Unlock()
+
+	// Fetch without holding the lock to avoid blocking other lookups.
 	schemaJSON, err := r.fetchSchema(id)
 	if err != nil {
 		return "", err
 	}
-	r.cache.Store(id, schemaJSON)
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Double-check: another goroutine may have fetched it concurrently.
+	if el, ok := r.cache[id]; ok {
+		r.evictList.MoveToFront(el)
+		return el.Value.(*lruEntry).value, nil
+	}
+
+	el := r.evictList.PushFront(&lruEntry{key: id, value: schemaJSON})
+	r.cache[id] = el
+
+	if r.evictList.Len() > r.maxEntries {
+		oldest := r.evictList.Back()
+		if oldest != nil {
+			r.evictList.Remove(oldest)
+			delete(r.cache, oldest.Value.(*lruEntry).key)
+		}
+	}
+
 	return schemaJSON, nil
 }
 

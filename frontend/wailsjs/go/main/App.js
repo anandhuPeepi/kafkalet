@@ -86,6 +86,10 @@ export function ImportSettings() {
   return window['go']['main']['App']['ImportSettings']();
 }
 
+export function InvalidateTopicsCache(arg1) {
+  return window['go']['main']['App']['InvalidateTopicsCache'](arg1);
+}
+
 export function ListAllConsumerGroups(arg1, arg2) {
   return window['go']['main']['App']['ListAllConsumerGroups'](arg1, arg2);
 }
@@ -154,8 +158,8 @@ export function StartRateWatcher(arg1, arg2) {
   return window['go']['main']['App']['StartRateWatcher'](arg1, arg2);
 }
 
-export function StopRateWatcher() {
-  return window['go']['main']['App']['StopRateWatcher']();
+export function StopRateWatcher(arg1) {
+  return window['go']['main']['App']['StopRateWatcher'](arg1);
 }
 
 export function StopSession(arg1) {

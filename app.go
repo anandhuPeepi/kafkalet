@@ -28,9 +28,13 @@ type App struct {
 	pluginStore  *plugin.Store
 	streamMgr    *stream.Manager
 	pool         *broker.Pool
+	metaCache    *broker.MetaCache
 
-	rateWatchCancel context.CancelFunc
-	rateWatchMu     sync.Mutex
+	registries   map[string]*schema.Registry
+	registriesMu sync.Mutex
+
+	rateWatchers   map[string]context.CancelFunc // brokerID → cancel
+	rateWatchersMu sync.Mutex
 }
 
 func NewApp() *App {
@@ -57,10 +61,15 @@ func (a *App) startup(ctx context.Context) {
 		return broker.NewClient(b, pw)
 	})
 
+	a.metaCache = broker.NewMetaCache()
+	a.registries = make(map[string]*schema.Registry)
+	a.rateWatchers = make(map[string]context.CancelFunc)
+
 	a.migrateCredentials()
 }
 
 func (a *App) shutdown(_ context.Context) {
+	a.stopAllRateWatchers()
 	a.pool.Close()
 }
 
@@ -346,10 +355,16 @@ func (a *App) RenameProfile(id, name string) error {
 }
 
 // SwitchProfile stops all active stream sessions, clears the connection pool,
-// switches the active profile and notifies the frontend.
+// caches, shared registries, and rate watchers, then switches the active profile.
 func (a *App) SwitchProfile(id string) error {
 	a.streamMgr.StopAll()
 	a.pool.CloseAll()
+	a.metaCache.InvalidateAll()
+	a.stopAllRateWatchers()
+
+	a.registriesMu.Lock()
+	a.registries = make(map[string]*schema.Registry)
+	a.registriesMu.Unlock()
 
 	if err := a.profileStore.SetActive(id); err != nil {
 		return err
@@ -401,10 +416,13 @@ func (a *App) DeleteBrokerCredential(profileID, brokerID, credentialID string) e
 }
 
 // SwitchBrokerCredential stops all sessions for a broker, evicts pooled clients,
-// sets the active credential, and emits an event.
+// clears caches/registry/rate watcher, sets the active credential, and emits an event.
 func (a *App) SwitchBrokerCredential(profileID, brokerID, credentialID string) error {
 	a.streamMgr.StopBroker(brokerID)
 	a.pool.EvictBroker(brokerID)
+	a.metaCache.InvalidateBroker(brokerID)
+	a.stopRateWatcher(brokerID)
+	a.evictRegistry(brokerID)
 	if err := a.profileStore.SetActiveBrokerCredential(profileID, brokerID, credentialID); err != nil {
 		return err
 	}
@@ -420,6 +438,9 @@ func (a *App) SwitchBrokerCredential(profileID, brokerID, credentialID string) e
 func (a *App) ClearActiveBrokerCredential(profileID, brokerID string) error {
 	a.streamMgr.StopBroker(brokerID)
 	a.pool.EvictBroker(brokerID)
+	a.metaCache.InvalidateBroker(brokerID)
+	a.stopRateWatcher(brokerID)
+	a.evictRegistry(brokerID)
 	return a.profileStore.ClearActiveBrokerCredential(profileID, brokerID)
 }
 
@@ -464,13 +485,28 @@ func (a *App) DeleteTopicGroup(profileID, brokerID, groupID string) error {
 // ── Broker metadata ───────────────────────────────────────────────────────────
 
 // ListTopics fetches all topics with partition counts from the given broker.
+// Results are cached with a 30s TTL.
 func (a *App) ListTopics(profileID, brokerID string) ([]broker.Topic, error) {
+	if cached, ok := a.metaCache.GetTopics(brokerID); ok {
+		return cached, nil
+	}
 	ctx, cancel, client, err := a.pooledClient(profileID, brokerID)
 	if err != nil {
 		return nil, err
 	}
 	defer cancel()
-	return broker.ListTopics(ctx, client)
+	topics, err := broker.ListTopics(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+	a.metaCache.SetTopics(brokerID, topics)
+	return topics, nil
+}
+
+// InvalidateTopicsCache clears the topics cache for a broker.
+// Call before ListTopics to force a fresh fetch (e.g. on Refresh button).
+func (a *App) InvalidateTopicsCache(brokerID string) {
+	a.metaCache.InvalidateTopics(brokerID)
 }
 
 // ── Producer ──────────────────────────────────────────────────────────────────
@@ -516,13 +552,22 @@ func (a *App) ListConsumerGroups(profileID, brokerID, topic string) ([]broker.Gr
 }
 
 // GetClusterInfo returns the cluster ID, controller node ID, and broker list.
+// Results are cached with a 60s TTL.
 func (a *App) GetClusterInfo(profileID, brokerID string) (broker.ClusterInfo, error) {
+	if cached, ok := a.metaCache.GetClusterInfo(brokerID); ok {
+		return cached, nil
+	}
 	ctx, cancel, client, err := a.pooledClient(profileID, brokerID)
 	if err != nil {
 		return broker.ClusterInfo{}, err
 	}
 	defer cancel()
-	return broker.GetClusterInfo(ctx, client)
+	info, err := broker.GetClusterInfo(ctx, client)
+	if err != nil {
+		return broker.ClusterInfo{}, err
+	}
+	a.metaCache.SetClusterInfo(brokerID, info)
+	return info, nil
 }
 
 // StartObserverAtTimestamp resolves partition offsets at the given Unix
@@ -544,7 +589,7 @@ func (a *App) StartObserverAtTimestamp(profileID, brokerID, topic string, timest
 	}
 	return a.streamMgr.StartObserver(b, password, topic, stream.ObserverOpts{
 		PartitionOffsets: partitionOffsets,
-		Registry:         a.buildSchemaRegistry(profileID, b),
+		Registry:         a.getOrCreateRegistry(profileID, b),
 	})
 }
 
@@ -566,7 +611,11 @@ func (a *App) CreateTopic(profileID, brokerID string, req broker.CreateTopicRequ
 		return err
 	}
 	defer cancel()
-	return broker.CreateTopic(ctx, client, req)
+	if err := broker.CreateTopic(ctx, client, req); err != nil {
+		return err
+	}
+	a.metaCache.InvalidateTopics(brokerID)
+	return nil
 }
 
 // DeleteTopic deletes a topic from the given broker.
@@ -576,7 +625,11 @@ func (a *App) DeleteTopic(profileID, brokerID, topicName string) error {
 		return err
 	}
 	defer cancel()
-	return broker.DeleteTopic(ctx, client, topicName)
+	if err := broker.DeleteTopic(ctx, client, topicName); err != nil {
+		return err
+	}
+	a.metaCache.InvalidateTopics(brokerID)
+	return nil
 }
 
 // GetTopicConfig returns the configuration for a topic.
@@ -614,7 +667,7 @@ func (a *App) StartObserver(profileID, brokerID, topic, startOffset string) (str
 	}
 	return a.streamMgr.StartObserver(b, password, topic, stream.ObserverOpts{
 		StartOffset: startOffset,
-		Registry:    a.buildSchemaRegistry(profileID, b),
+		Registry:    a.getOrCreateRegistry(profileID, b),
 	})
 }
 
@@ -633,7 +686,7 @@ func (a *App) StartConsumer(profileID, brokerID, topic, groupID, startOffset str
 	return a.streamMgr.StartConsumer(b, password, topic, stream.ConsumerOpts{
 		GroupID:     groupID,
 		StartOffset: startOffset,
-		Registry:    a.buildSchemaRegistry(profileID, b),
+		Registry:    a.getOrCreateRegistry(profileID, b),
 	})
 }
 
@@ -651,13 +704,22 @@ func (a *App) StopSession(sessionID string) error {
 // ── Cluster metrics ───────────────────────────────────────────────────────────
 
 // GetClusterStats returns aggregate broker/topic/partition counts plus URP and offline partitions.
+// Results are cached with a 15s TTL.
 func (a *App) GetClusterStats(profileID, brokerID string) (broker.ClusterStats, error) {
+	if cached, ok := a.metaCache.GetClusterStats(brokerID); ok {
+		return cached, nil
+	}
 	ctx, cancel, client, err := a.pooledClient(profileID, brokerID)
 	if err != nil {
 		return broker.ClusterStats{}, err
 	}
 	defer cancel()
-	return broker.GetClusterStats(ctx, client)
+	stats, err := broker.GetClusterStats(ctx, client)
+	if err != nil {
+		return broker.ClusterStats{}, err
+	}
+	a.metaCache.SetClusterStats(brokerID, stats)
+	return stats, nil
 }
 
 // ListAllConsumerGroups returns all consumer groups with state and total lag.
@@ -681,18 +743,20 @@ func (a *App) GetConsumerGroupDetail(profileID, brokerID, groupID string) (broke
 }
 
 // StartRateWatcher starts a goroutine that polls LEO for all topics every 30s
-// and emits snapshots on the "rate:<brokerID>" event. Stops any previous watcher.
+// and emits snapshots on the "rate:<brokerID>" event. Stops any previous watcher
+// for the same broker.
 func (a *App) StartRateWatcher(profileID, brokerID string) error {
 	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
 
-	a.rateWatchMu.Lock()
-	defer a.rateWatchMu.Unlock()
-	if a.rateWatchCancel != nil {
-		a.rateWatchCancel()
+	a.rateWatchersMu.Lock()
+	if cancel, ok := a.rateWatchers[brokerID]; ok {
+		cancel()
+		delete(a.rateWatchers, brokerID)
 	}
+	a.rateWatchersMu.Unlock()
 
 	eventName := "rate:" + brokerID
 	cancel, err := broker.StartRateWatcher(a.ctx, b, password, 30, func(snap broker.RateSnapshot) {
@@ -701,18 +765,16 @@ func (a *App) StartRateWatcher(profileID, brokerID string) error {
 	if err != nil {
 		return err
 	}
-	a.rateWatchCancel = cancel
+
+	a.rateWatchersMu.Lock()
+	a.rateWatchers[brokerID] = cancel
+	a.rateWatchersMu.Unlock()
 	return nil
 }
 
-// StopRateWatcher stops the active rate watcher if any.
-func (a *App) StopRateWatcher() {
-	a.rateWatchMu.Lock()
-	defer a.rateWatchMu.Unlock()
-	if a.rateWatchCancel != nil {
-		a.rateWatchCancel()
-		a.rateWatchCancel = nil
-	}
+// StopRateWatcher stops the rate watcher for a specific broker.
+func (a *App) StopRateWatcher(brokerID string) {
+	a.stopRateWatcher(brokerID)
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -757,14 +819,48 @@ func (a *App) resolveBrokerAuth(profileID, brokerID string) (profile.Broker, str
 	return bc, "", nil
 }
 
-// buildSchemaRegistry creates a *schema.Registry from the broker's SchemaRegistry config.
-// Returns nil if the broker has no Schema Registry URL configured.
-func (a *App) buildSchemaRegistry(profileID string, b profile.Broker) *schema.Registry {
+// getOrCreateRegistry returns a shared schema.Registry for a broker,
+// creating one on first use. Returns nil if Schema Registry is not configured.
+func (a *App) getOrCreateRegistry(profileID string, b profile.Broker) *schema.Registry {
 	if b.SchemaRegistry.URL == "" {
 		return nil
 	}
+	a.registriesMu.Lock()
+	defer a.registriesMu.Unlock()
+	if reg, ok := a.registries[b.ID]; ok {
+		return reg
+	}
 	password, _ := profile.GetSchemaRegistryPassword(profileID, b.ID)
-	return schema.New(b.SchemaRegistry.URL, b.SchemaRegistry.Username, password)
+	reg := schema.New(b.SchemaRegistry.URL, b.SchemaRegistry.Username, password)
+	a.registries[b.ID] = reg
+	return reg
+}
+
+// evictRegistry removes the shared schema registry for a broker.
+func (a *App) evictRegistry(brokerID string) {
+	a.registriesMu.Lock()
+	defer a.registriesMu.Unlock()
+	delete(a.registries, brokerID)
+}
+
+// stopRateWatcher stops the rate watcher for a specific broker (internal).
+func (a *App) stopRateWatcher(brokerID string) {
+	a.rateWatchersMu.Lock()
+	defer a.rateWatchersMu.Unlock()
+	if cancel, ok := a.rateWatchers[brokerID]; ok {
+		cancel()
+		delete(a.rateWatchers, brokerID)
+	}
+}
+
+// stopAllRateWatchers stops all active rate watchers.
+func (a *App) stopAllRateWatchers() {
+	a.rateWatchersMu.Lock()
+	defer a.rateWatchersMu.Unlock()
+	for id, cancel := range a.rateWatchers {
+		cancel()
+		delete(a.rateWatchers, id)
+	}
 }
 
 // findBroker looks up a broker by profileID and brokerID.
