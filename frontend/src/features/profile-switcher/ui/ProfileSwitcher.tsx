@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, ChevronDown, Plus } from 'lucide-react'
+import { Check, ChevronDown, Plus, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import {
   Popover,
@@ -15,6 +16,7 @@ export function ProfileSwitcher() {
   const { profiles, activeProfileId, setProfiles, setActiveProfileId, upsertProfile } = useProfileStore()
   const [open, setOpen] = useState(false)
   const [creating, setCreating] = useState(false)
+  const [switching, setSwitching] = useState(false)
   const [newName, setNewName] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -29,8 +31,8 @@ export function ProfileSwitcher() {
         try {
           await SwitchProfile(all[0].id)
           setActiveProfileId(all[0].id)
-        } catch {
-          // auto-select failed; user can pick manually
+        } catch (err) {
+          toast.error('Failed to switch profile', { description: String(err) })
         }
       }
     }
@@ -57,9 +59,16 @@ export function ProfileSwitcher() {
   }, [])
 
   const handleSelect = async (id: string) => {
-    await SwitchProfile(id)
-    setActiveProfileId(id)
-    setOpen(false)
+    setSwitching(true)
+    try {
+      await SwitchProfile(id)
+      setActiveProfileId(id)
+      setOpen(false)
+    } catch (err) {
+      toast.error('Failed to switch profile', { description: String(err) })
+    } finally {
+      setSwitching(false)
+    }
   }
 
   const handleCreate = async () => {
@@ -73,8 +82,8 @@ export function ProfileSwitcher() {
       setNewName('')
       setCreating(false)
       setOpen(false)
-    } catch {
-      // creation failed
+    } catch (err) {
+      toast.error('Failed to create profile', { description: String(err) })
     }
   }
 
@@ -105,7 +114,11 @@ export function ProfileSwitcher() {
           title="Switch profile (⌘K)"
         >
           <span className="truncate">{activeProfile?.name ?? 'Select profile'}</span>
-          <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+          {switching ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-50" />
+          )}
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-52 p-1" align="start">

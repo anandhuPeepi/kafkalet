@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { RefreshCw, Loader2, Plus, ChevronRight, ChevronDown, FolderOpen, Search } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
@@ -75,8 +76,9 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
     try {
       const result = await ListTopics(profileId, brokerId)
       setTopics(result ?? [])
-    } catch {
+    } catch (err) {
       setTopics([])
+      toast.error('Failed to load topics', { description: String(err) })
     } finally {
       setLoading(false)
     }
@@ -111,33 +113,48 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
 
   const handleCreateGroup = async () => {
     if (!newGroupName.trim()) return
-    const g: TopicGroup = { id: '', name: newGroupName.trim(), topics: [] }
-    await SaveTopicGroup(profileId, brokerId, g as any)
-    // Refresh profile to get updated groups
-    refreshProfile()
-    setNewGroupName('')
-    setNewGroupOpen(false)
+    try {
+      const g: TopicGroup = { id: '', name: newGroupName.trim(), topics: [] }
+      await SaveTopicGroup(profileId, brokerId, g as any)
+      refreshProfile()
+      setNewGroupName('')
+      setNewGroupOpen(false)
+    } catch (err) {
+      toast.error('Failed to create group', { description: String(err) })
+    }
   }
 
   const handleDeleteGroup = async (groupId: string) => {
-    await DeleteTopicGroup(profileId, brokerId, groupId)
-    refreshProfile()
+    try {
+      await DeleteTopicGroup(profileId, brokerId, groupId)
+      refreshProfile()
+    } catch (err) {
+      toast.error('Failed to delete group', { description: String(err) })
+    }
   }
 
   const handleAssignToGroup = async (groupId: string, topicName: string) => {
     const group = topicGroups.find((g) => g.id === groupId)
     if (!group) return
-    const updated: TopicGroup = { ...group, topics: [...group.topics, topicName] }
-    await SaveTopicGroup(profileId, brokerId, updated as any)
-    refreshProfile()
+    try {
+      const updated: TopicGroup = { ...group, topics: [...group.topics, topicName] }
+      await SaveTopicGroup(profileId, brokerId, updated as any)
+      refreshProfile()
+    } catch (err) {
+      toast.error('Failed to assign topic to group', { description: String(err) })
+    }
   }
 
   const handleRemoveFromGroup = async (groupId: string, topicName: string) => {
     const group = topicGroups.find((g) => g.id === groupId)
     if (!group) return
-    const updated: TopicGroup = { ...group, topics: group.topics.filter((t) => t !== topicName) }
-    await SaveTopicGroup(profileId, brokerId, updated as any)
-    refreshProfile()
+    try {
+      const updated: TopicGroup = { ...group, topics: group.topics.filter((t) => t !== topicName) }
+      await SaveTopicGroup(profileId, brokerId, updated as any)
+      refreshProfile()
+    } catch (err) {
+      toast.error('Failed to remove topic from group', { description: String(err) })
+    }
   }
 
   const refreshProfile = async () => {

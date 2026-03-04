@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Plus, Pencil, Trash2, ChevronLeft, Download, Upload } from 'lucide-react'
+import { Plus, Pencil, Trash2, ChevronLeft, Download, Upload, Loader2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/shared/ui/button'
 import { Input } from '@/shared/ui/input'
@@ -58,6 +59,7 @@ export function SettingsPage({ onBack }: Props) {
   const [editingName, setEditingName] = useState('')
   const [showExportWarning, setShowExportWarning] = useState(false)
   const [includeSecrets, setIncludeSecrets] = useState(false)
+  const [importing, setImporting] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -70,11 +72,15 @@ export function SettingsPage({ onBack }: Props) {
   const handleCreateProfile = async () => {
     const name = newProfileName.trim()
     if (!name) return
-    const created = await CreateProfile(name)
-    upsertProfile(created as unknown as Profile)
-    setNewProfileName('')
-    if (!activeProfileId) {
-      setActiveProfileId(created.id)
+    try {
+      const created = await CreateProfile(name)
+      upsertProfile(created as unknown as Profile)
+      setNewProfileName('')
+      if (!activeProfileId) {
+        setActiveProfileId(created.id)
+      }
+    } catch (err) {
+      toast.error('Failed to create profile', { description: String(err) })
     }
   }
 
@@ -100,10 +106,14 @@ export function SettingsPage({ onBack }: Props) {
 
   const handleConfirmDelete = async () => {
     if (!deleteTarget) return
-    if (deleteTarget.type === 'profile') {
-      await handleDeleteProfile(deleteTarget.profileId)
-    } else if (deleteTarget.brokerId) {
-      await handleDeleteBroker(deleteTarget.profileId, deleteTarget.brokerId)
+    try {
+      if (deleteTarget.type === 'profile') {
+        await handleDeleteProfile(deleteTarget.profileId)
+      } else if (deleteTarget.brokerId) {
+        await handleDeleteBroker(deleteTarget.profileId, deleteTarget.brokerId)
+      }
+    } catch (err) {
+      toast.error(`Failed to delete ${deleteTarget.type}`, { description: String(err) })
     }
     setDeleteTarget(null)
   }
@@ -122,9 +132,13 @@ export function SettingsPage({ onBack }: Props) {
     if (!editingProfileId) return
     const name = editingName.trim()
     if (name) {
-      await RenameProfile(editingProfileId, name)
-      const p = profiles.find((pr) => pr.id === editingProfileId)
-      if (p) upsertProfile({ ...p, name })
+      try {
+        await RenameProfile(editingProfileId, name)
+        const p = profiles.find((pr) => pr.id === editingProfileId)
+        if (p) upsertProfile({ ...p, name })
+      } catch (err) {
+        toast.error('Failed to rename profile', { description: String(err) })
+      }
     }
     setEditingProfileId(null)
   }
@@ -137,16 +151,21 @@ export function SettingsPage({ onBack }: Props) {
     setShowExportWarning(false)
     try {
       await ExportSettings(includeSecrets)
+      toast.success('Settings exported')
     } catch (err) {
-      console.error('Export failed:', err)
+      toast.error('Export failed', { description: String(err) })
     }
   }
 
   const handleImport = async () => {
+    setImporting(true)
     try {
       await ImportSettings()
+      toast.success('Settings imported')
     } catch (err) {
-      console.error('Import failed:', err)
+      toast.error('Import failed', { description: String(err) })
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -158,8 +177,8 @@ export function SettingsPage({ onBack }: Props) {
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <h1 className="text-sm font-semibold flex-1">Settings</h1>
-        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={handleImport}>
-          <Upload className="h-3.5 w-3.5" />
+        <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={handleImport} disabled={importing}>
+          {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
           Import Settings
         </Button>
         <Button variant="ghost" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowExportWarning(true)}>

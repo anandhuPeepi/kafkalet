@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, Loader2, ChevronRight, ChevronDown } from 'lucide-react'
+import { toast } from 'sonner'
 
 import {
   Dialog,
@@ -60,8 +61,8 @@ export function ConsumerGroupsDialog({ profileId, brokerId, brokerName, open, on
     try {
       const detail = await GetConsumerGroupDetail(profileId, brokerId, groupId)
       setDetailCache((prev) => ({ ...prev, [groupId]: detail as unknown as GroupDetail }))
-    } catch {
-      // silently — user can retry by re-expanding
+    } catch (err) {
+      toast.error('Failed to load group details', { description: String(err) })
     } finally {
       setLoadingDetail(null)
     }

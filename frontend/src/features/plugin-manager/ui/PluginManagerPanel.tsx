@@ -1,7 +1,18 @@
 import { useEffect, useState } from 'react'
 import { Plus, Pencil, Trash2 } from 'lucide-react'
+import { toast } from 'sonner'
 
 import { Button } from '@/shared/ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/shared/ui/alert-dialog'
 import { ListPlugins, DeletePlugin } from '@shared/api'
 import { usePluginStore } from '@entities/plugin'
 import type { Plugin } from '@entities/plugin'
@@ -11,15 +22,23 @@ export function PluginManagerPanel() {
   const { plugins, setPlugins, removePlugin } = usePluginStore()
   const [editPlugin, setEditPlugin] = useState<Plugin | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
+  const [deletePlugin, setDeletePlugin] = useState<Plugin | null>(null)
 
   useEffect(() => {
-    ListPlugins().then(setPlugins).catch(console.error)
+    ListPlugins()
+      .then(setPlugins)
+      .catch((err) => toast.error('Failed to load plugins', { description: String(err) }))
   }, [])
 
-  const handleDelete = async (plugin: Plugin) => {
-    if (!confirm(`Delete plugin "${plugin.name}"?`)) return
-    await DeletePlugin(plugin.id)
-    removePlugin(plugin.id)
+  const handleConfirmDelete = async () => {
+    if (!deletePlugin) return
+    try {
+      await DeletePlugin(deletePlugin.id)
+      removePlugin(deletePlugin.id)
+    } catch (err) {
+      toast.error('Failed to delete plugin', { description: String(err) })
+    }
+    setDeletePlugin(null)
   }
 
   const handleEdit = (plugin: Plugin) => {
@@ -62,7 +81,7 @@ export function PluginManagerPanel() {
                 variant="ghost"
                 size="icon"
                 className="h-7 w-7 text-destructive hover:text-destructive"
-                onClick={() => handleDelete(plugin)}
+                onClick={() => setDeletePlugin(plugin)}
                 title="Delete plugin"
               >
                 <Trash2 className="h-3.5 w-3.5" />
@@ -82,6 +101,26 @@ export function PluginManagerPanel() {
         open={editorOpen}
         onOpenChange={setEditorOpen}
       />
+
+      <AlertDialog open={Boolean(deletePlugin)} onOpenChange={(v) => !v && setDeletePlugin(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Plugin</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete plugin "{deletePlugin?.name}"? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={handleConfirmDelete}
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   )
 }
