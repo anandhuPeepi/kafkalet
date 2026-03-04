@@ -356,6 +356,22 @@ export namespace plugin {
 
 export namespace profile {
 	
+	export class TopicGroup {
+	    id: string;
+	    name: string;
+	    topics: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TopicGroup(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.topics = source["topics"];
+	    }
+	}
 	export class NamedCredential {
 	    id: string;
 	    name: string;
@@ -453,6 +469,7 @@ export namespace profile {
 	    schemaRegistry: SchemaRegistryConfig;
 	    credentials?: NamedCredential[];
 	    activeCredentialID?: string;
+	    topicGroups?: TopicGroup[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Broker(source);
@@ -468,6 +485,7 @@ export namespace profile {
 	        this.schemaRegistry = this.convertValues(source["schemaRegistry"], SchemaRegistryConfig);
 	        this.credentials = this.convertValues(source["credentials"], NamedCredential);
 	        this.activeCredentialID = source["activeCredentialID"];
+	        this.topicGroups = this.convertValues(source["topicGroups"], TopicGroup);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -523,6 +541,7 @@ export namespace profile {
 		    return a;
 		}
 	}
+	
 	
 	
 

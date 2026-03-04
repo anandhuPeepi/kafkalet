@@ -14,6 +14,10 @@ export function AlterTopicConfig(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['AlterTopicConfig'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function ClearActiveBrokerCredential(arg1, arg2) {
+  return window['go']['main']['App']['ClearActiveBrokerCredential'](arg1, arg2);
+}
+
 export function CommitSession(arg1) {
   return window['go']['main']['App']['CommitSession'](arg1);
 }
@@ -44,6 +48,10 @@ export function DeleteProfile(arg1) {
 
 export function DeleteTopic(arg1, arg2, arg3) {
   return window['go']['main']['App']['DeleteTopic'](arg1, arg2, arg3);
+}
+
+export function DeleteTopicGroup(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DeleteTopicGroup'](arg1, arg2, arg3);
 }
 
 export function ExportSettings() {
@@ -112,6 +120,10 @@ export function ResetConsumerGroup(arg1, arg2, arg3, arg4, arg5) {
 
 export function SavePlugin(arg1) {
   return window['go']['main']['App']['SavePlugin'](arg1);
+}
+
+export function SaveTopicGroup(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveTopicGroup'](arg1, arg2, arg3);
 }
 
 export function SetBrokerPassword(arg1, arg2, arg3) {

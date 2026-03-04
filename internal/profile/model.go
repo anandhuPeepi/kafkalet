@@ -16,6 +16,13 @@ type NamedCredential struct {
 	SASL SASLConfig `json:"sasl"`
 }
 
+// TopicGroup is a user-defined grouping of topics within a broker.
+type TopicGroup struct {
+	ID     string   `json:"id"`
+	Name   string   `json:"name"`
+	Topics []string `json:"topics"`
+}
+
 // Broker is a Kafka cluster connection config within a profile.
 type Broker struct {
 	ID                  string               `json:"id"`
@@ -26,6 +33,7 @@ type Broker struct {
 	SchemaRegistry      SchemaRegistryConfig `json:"schemaRegistry"`
 	Credentials         []NamedCredential    `json:"credentials,omitempty"`
 	ActiveCredentialID  string               `json:"activeCredentialID,omitempty"`
+	TopicGroups         []TopicGroup         `json:"topicGroups,omitempty"`
 }
 
 // SchemaRegistryConfig holds connection settings for a Confluent-compatible Schema Registry.

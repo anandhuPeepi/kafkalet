@@ -44,12 +44,12 @@ import {
 import {
   AddBroker,
   UpdateBroker,
-  SetBrokerPassword,
   SetSchemaRegistryPassword,
   TestBrokerConnection,
   AddBrokerCredential,
   DeleteBrokerCredential,
   SetNamedCredentialPassword,
+  SwitchBrokerCredential,
   type profile,
 } from '@shared/api'
 import { useProfileStore, type Broker, type NamedCredential } from '@entities/profile'
@@ -57,16 +57,18 @@ import { useProfileStore, type Broker, type NamedCredential } from '@entities/pr
 const schema = z.object({
   name: z.string().min(1, 'Required'),
   addresses: z.string().min(1, 'Required'),
-  saslMechanism: z.string(),
-  saslUsername: z.string(),
-  saslPassword: z.string(),
-  oauthTokenURL: z.string(),
-  oauthClientId: z.string(),
-  oauthScopes: z.string(),
   tlsEnabled: z.boolean(),
   srUrl: z.string(),
   srUsername: z.string(),
   srPassword: z.string(),
+  // Initial user fields (add mode only)
+  initialCredName: z.string(),
+  initialCredMechanism: z.string(),
+  initialCredUsername: z.string(),
+  initialCredPassword: z.string(),
+  initialCredOAuthTokenURL: z.string(),
+  initialCredOAuthClientId: z.string(),
+  initialCredOAuthScopes: z.string(),
 })
 
 type FormValues = z.infer<typeof schema>
@@ -100,16 +102,17 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
     defaultValues: {
       name: broker?.name ?? '',
       addresses: broker?.addresses.join(', ') ?? '',
-      saslMechanism: broker?.sasl.mechanism || '__none__',
-      saslUsername: broker?.sasl.username ?? '',
-      saslPassword: '',
-      oauthTokenURL: broker?.sasl.oauthTokenURL ?? '',
-      oauthClientId: broker?.sasl.oauthClientID ?? '',
-      oauthScopes: broker?.sasl.oauthScopes?.join(' ') ?? '',
       tlsEnabled: broker?.tls.enabled ?? false,
       srUrl: broker?.schemaRegistry?.url ?? '',
       srUsername: broker?.schemaRegistry?.username ?? '',
       srPassword: '',
+      initialCredName: '',
+      initialCredMechanism: '__none__',
+      initialCredUsername: '',
+      initialCredPassword: '',
+      initialCredOAuthTokenURL: '',
+      initialCredOAuthClientId: '',
+      initialCredOAuthScopes: '',
     },
   })
 
@@ -128,16 +131,17 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
       form.reset({
         name: broker?.name ?? '',
         addresses: broker?.addresses.join(', ') ?? '',
-        saslMechanism: broker?.sasl.mechanism || '__none__',
-        saslUsername: broker?.sasl.username ?? '',
-        saslPassword: '',
-        oauthTokenURL: broker?.sasl.oauthTokenURL ?? '',
-        oauthClientId: broker?.sasl.oauthClientID ?? '',
-        oauthScopes: broker?.sasl.oauthScopes?.join(' ') ?? '',
         tlsEnabled: broker?.tls.enabled ?? false,
         srUrl: broker?.schemaRegistry?.url ?? '',
         srUsername: broker?.schemaRegistry?.username ?? '',
         srPassword: '',
+        initialCredName: '',
+        initialCredMechanism: '__none__',
+        initialCredUsername: '',
+        initialCredPassword: '',
+        initialCredOAuthTokenURL: '',
+        initialCredOAuthClientId: '',
+        initialCredOAuthScopes: '',
       })
       setTestResult(null)
       setAddingCred(false)
@@ -147,26 +151,11 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
 
   const onSubmit = async (values: FormValues) => {
     const addresses = values.addresses.split(',').map((s) => s.trim()).filter(Boolean)
-    const isOAuth = values.saslMechanism === 'OAUTHBEARER'
     const brokerData: Broker = {
       id: broker?.id ?? '',
       name: values.name,
       addresses,
-      sasl: isOAuth
-        ? {
-            mechanism: 'OAUTHBEARER',
-            username: '',
-            oauthTokenURL: values.oauthTokenURL,
-            oauthClientID: values.oauthClientId,
-            oauthScopes: values.oauthScopes.split(' ').filter(Boolean),
-          }
-        : {
-            mechanism: values.saslMechanism === '__none__' ? '' : values.saslMechanism,
-            username: values.saslUsername,
-            oauthTokenURL: '',
-            oauthClientID: '',
-            oauthScopes: [],
-          },
+      sasl: { mechanism: '', username: '' },
       tls: {
         enabled: values.tlsEnabled,
         insecureSkipVerify: false,
@@ -191,12 +180,40 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
         savedBroker = await AddBroker(profileId, brokerData as unknown as profile.Broker) as unknown as Broker
       }
 
-      if (values.saslPassword) {
-        await SetBrokerPassword(profileId, savedBroker.id, values.saslPassword)
-      }
-
       if (values.srPassword) {
         await SetSchemaRegistryPassword(profileId, savedBroker.id, values.srPassword)
+      }
+
+      // Add initial credential for new brokers
+      if (!isEdit && values.initialCredName.trim()) {
+        const mechanism = values.initialCredMechanism === '__none__' ? '' : values.initialCredMechanism
+        const isOAuth = mechanism === 'OAUTHBEARER'
+        const newCred = await AddBrokerCredential(profileId, savedBroker.id, {
+          id: '',
+          name: values.initialCredName.trim(),
+          sasl: isOAuth
+            ? {
+                mechanism: 'OAUTHBEARER',
+                username: '',
+                oauthTokenURL: values.initialCredOAuthTokenURL,
+                oauthClientID: values.initialCredOAuthClientId,
+                oauthScopes: values.initialCredOAuthScopes.split(' ').filter(Boolean),
+              }
+            : {
+                mechanism,
+                username: values.initialCredUsername,
+                oauthTokenURL: '',
+                oauthClientID: '',
+                oauthScopes: [],
+              },
+        } as unknown as profile.NamedCredential) as unknown as NamedCredential
+
+        if (values.initialCredPassword) {
+          await SetNamedCredentialPassword(profileId, savedBroker.id, newCred.id, values.initialCredPassword)
+        }
+
+        await SwitchBrokerCredential(profileId, savedBroker.id, newCred.id)
+        savedBroker = { ...savedBroker, credentials: [newCred], activeCredentialID: newCred.id }
       }
 
       const currentProfile = profiles.find((p) => p.id === profileId)
@@ -219,9 +236,9 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
     setTestResult(null)
     try {
       await TestBrokerConnection(profileId, broker.id)
-      setTestResult('✓ Connection successful')
+      setTestResult('Connection successful')
     } catch (err) {
-      setTestResult(`✗ ${String(err)}`)
+      setTestResult(`${String(err)}`)
     } finally {
       setTesting(false)
     }
@@ -278,11 +295,14 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
     setCredDeleteTarget(null)
   }
 
-  const saslMechanism = form.watch('saslMechanism')
-  const oauthTokenURL = form.watch('oauthTokenURL')
-  const isOAuth = saslMechanism === 'OAUTHBEARER'
-  const isClientCredentials = isOAuth && oauthTokenURL.trim() !== ''
-  const credentials = broker?.credentials ?? []
+  const initialCredMechanism = form.watch('initialCredMechanism')
+  const initialCredIsOAuth = initialCredMechanism === 'OAUTHBEARER'
+  const initialCredOAuthTokenURL = form.watch('initialCredOAuthTokenURL')
+  const initialCredIsClientCreds = initialCredIsOAuth && initialCredOAuthTokenURL.trim() !== ''
+  const storeProfile = profiles.find((p) => p.id === profileId)
+  const storeBroker = storeProfile?.brokers.find((b) => b.id === broker?.id)
+  const credentials = storeBroker?.credentials ?? broker?.credentials ?? []
+  const activeCredentialID = storeBroker?.activeCredentialID ?? broker?.activeCredentialID
 
   return (
     <>
@@ -302,17 +322,29 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
               </TabsList>
 
               <TabsContent value="connection">
-                <ConnectionForm
-                  form={form}
-                  isEdit={isEdit}
-                  saslMechanism={saslMechanism}
-                  isOAuth={isOAuth}
-                  isClientCredentials={isClientCredentials}
-                  testing={testing}
-                  testResult={testResult}
-                  onTest={handleTest}
-                  onSubmit={onSubmit}
-                />
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-2">
+                    <ConnectionFormFields form={form} />
+                    {form.formState.errors.root && (
+                      <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>
+                    )}
+                    {testResult && (
+                      <p className={testResult.startsWith('Connection') ? 'text-sm text-green-500' : 'text-sm text-destructive'}>
+                        {testResult}
+                      </p>
+                    )}
+                    <DialogFooter className="gap-2">
+                      <Button type="button" variant="outline" size="sm" onClick={handleTest} disabled={testing}>
+                        {testing && <Loader2 className="animate-spin" />}
+                        Test Connection
+                      </Button>
+                      <Button type="submit" disabled={form.formState.isSubmitting}>
+                        {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
+                        Save
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
               </TabsContent>
 
               <TabsContent value="users" className="space-y-3">
@@ -329,7 +361,7 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
                       <p className="text-xs text-muted-foreground">{cred.sasl.mechanism} {cred.sasl.username && `· ${cred.sasl.username}`}</p>
                     </div>
                     <div className="flex items-center gap-1 shrink-0">
-                      {broker?.activeCredentialID === cred.id && (
+                      {activeCredentialID === cred.id && (
                         <UserCheck className="h-3.5 w-3.5 text-primary" aria-label="Active" />
                       )}
                       <Button
@@ -439,12 +471,160 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
           ) : (
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <ConnectionFormFields
-                  form={form}
-                  saslMechanism={saslMechanism}
-                  isOAuth={isOAuth}
-                  isClientCredentials={isClientCredentials}
+                <ConnectionFormFields form={form} />
+
+                <Separator />
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                  User <span className="normal-case font-normal">(optional)</span>
+                </p>
+
+                <FormField
+                  control={form.control}
+                  name="initialCredName"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Name</FormLabel>
+                      <FormControl>
+                        <Input placeholder="admin" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
                 />
+
+                {form.watch('initialCredName').trim() && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="initialCredMechanism"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>SASL Mechanism</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="None" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="__none__">None</SelectItem>
+                              <SelectItem value="PLAIN">PLAIN</SelectItem>
+                              <SelectItem value="SCRAM-SHA-256">SCRAM-SHA-256</SelectItem>
+                              <SelectItem value="SCRAM-SHA-512">SCRAM-SHA-512</SelectItem>
+                              <SelectItem value="OAUTHBEARER">OAUTHBEARER</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {initialCredMechanism !== '__none__' && !initialCredIsOAuth && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="initialCredUsername"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Username</FormLabel>
+                              <FormControl>
+                                <Input {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="initialCredPassword"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                Password{' '}
+                                <span className="text-muted-foreground">(stored in keychain)</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input type="password" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    )}
+
+                    {initialCredIsOAuth && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="initialCredOAuthTokenURL"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                Token URL{' '}
+                                <span className="text-muted-foreground">(optional — leave blank for static token)</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input placeholder="https://auth.example.com/oauth/token" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        {initialCredIsClientCreds && (
+                          <>
+                            <FormField
+                              control={form.control}
+                              name="initialCredOAuthClientId"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Client ID</FormLabel>
+                                  <FormControl>
+                                    <Input {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                            <FormField
+                              control={form.control}
+                              name="initialCredOAuthScopes"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>
+                                    Scopes{' '}
+                                    <span className="text-muted-foreground">(space-separated, optional)</span>
+                                  </FormLabel>
+                                  <FormControl>
+                                    <Input placeholder="kafka openid" {...field} />
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          </>
+                        )}
+                        <FormField
+                          control={form.control}
+                          name="initialCredPassword"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>
+                                {initialCredIsClientCreds ? 'Client Secret' : 'Bearer Token'}{' '}
+                                <span className="text-muted-foreground">(stored in keychain)</span>
+                              </FormLabel>
+                              <FormControl>
+                                <Input type="password" {...field} />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    )}
+                  </>
+                )}
+
                 {form.formState.errors.root && (
                   <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>
                 )}
@@ -486,61 +666,11 @@ export function BrokerFormDialog({ profileId, broker, open, onOpenChange }: Prop
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
 
-interface ConnectionFormProps {
-  form: ReturnType<typeof useForm<FormValues>>
-  isEdit: boolean
-  saslMechanism: string
-  isOAuth: boolean
-  isClientCredentials: boolean
-  testing: boolean
-  testResult: string | null
-  onTest: () => void
-  onSubmit: (values: FormValues) => void
-}
-
-function ConnectionForm({ form, isEdit, saslMechanism, isOAuth, isClientCredentials, testing, testResult, onTest, onSubmit }: ConnectionFormProps) {
-  return (
-    <Form {...form}>
-      <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 mt-2">
-        <ConnectionFormFields
-          form={form}
-          saslMechanism={saslMechanism}
-          isOAuth={isOAuth}
-          isClientCredentials={isClientCredentials}
-        />
-        {form.formState.errors.root && (
-          <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>
-        )}
-        {testResult && (
-          <p className={testResult.startsWith('✓') ? 'text-sm text-green-500' : 'text-sm text-destructive'}>
-            {testResult}
-          </p>
-        )}
-        <DialogFooter className="gap-2">
-          {isEdit && (
-            <Button type="button" variant="outline" size="sm" onClick={onTest} disabled={testing}>
-              {testing && <Loader2 className="animate-spin" />}
-              Test Connection
-            </Button>
-          )}
-          <Button type="submit" disabled={form.formState.isSubmitting}>
-            {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
-            {isEdit ? 'Save' : 'Add Broker'}
-          </Button>
-        </DialogFooter>
-      </form>
-    </Form>
-  )
-}
-
 interface ConnectionFormFieldsProps {
   form: ReturnType<typeof useForm<FormValues>>
-  saslMechanism: string
-  isOAuth: boolean
-  isClientCredentials: boolean
 }
 
-function ConnectionFormFields({ form, saslMechanism, isOAuth, isClientCredentials }: ConnectionFormFieldsProps) {
+function ConnectionFormFields({ form }: ConnectionFormFieldsProps) {
   return (
     <>
       <FormField
@@ -573,137 +703,26 @@ function ConnectionFormFields({ form, saslMechanism, isOAuth, isClientCredential
 
       <Separator />
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-        Authentication
+        TLS
       </p>
 
       <FormField
         control={form.control}
-        name="saslMechanism"
+        name="tlsEnabled"
         render={({ field }) => (
-          <FormItem>
-            <FormLabel>SASL Mechanism</FormLabel>
-            <Select onValueChange={field.onChange} value={field.value}>
-              <FormControl>
-                <SelectTrigger>
-                  <SelectValue placeholder="None" />
-                </SelectTrigger>
-              </FormControl>
-              <SelectContent>
-                <SelectItem value="__none__">None</SelectItem>
-                <SelectItem value="PLAIN">PLAIN</SelectItem>
-                <SelectItem value="SCRAM-SHA-256">SCRAM-SHA-256</SelectItem>
-                <SelectItem value="SCRAM-SHA-512">SCRAM-SHA-512</SelectItem>
-                <SelectItem value="OAUTHBEARER">OAUTHBEARER</SelectItem>
-              </SelectContent>
-            </Select>
-            <FormMessage />
+          <FormItem className="flex items-center gap-2">
+            <FormControl>
+              <input
+                type="checkbox"
+                checked={field.value}
+                onChange={field.onChange}
+                className="h-4 w-4 rounded border-border"
+              />
+            </FormControl>
+            <FormLabel className="!mt-0">Enable TLS</FormLabel>
           </FormItem>
         )}
       />
-
-      {saslMechanism !== '__none__' && !isOAuth && (
-        <>
-          <FormField
-            control={form.control}
-            name="saslUsername"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Username</FormLabel>
-                <FormControl>
-                  <Input {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
-            control={form.control}
-            name="saslPassword"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  Password{' '}
-                  <span className="text-muted-foreground">(stored in keychain)</span>
-                </FormLabel>
-                <FormControl>
-                  <Input type="password" placeholder="leave blank to keep existing" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </>
-      )}
-
-      {isOAuth && (
-        <>
-          <FormField
-            control={form.control}
-            name="oauthTokenURL"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  Token URL{' '}
-                  <span className="text-muted-foreground">(optional — leave blank for static token)</span>
-                </FormLabel>
-                <FormControl>
-                  <Input placeholder="https://auth.example.com/oauth/token" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          {isClientCredentials && (
-            <>
-              <FormField
-                control={form.control}
-                name="oauthClientId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Client ID</FormLabel>
-                    <FormControl>
-                      <Input {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="oauthScopes"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>
-                      Scopes{' '}
-                      <span className="text-muted-foreground">(space-separated, optional)</span>
-                    </FormLabel>
-                    <FormControl>
-                      <Input placeholder="kafka openid" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </>
-          )}
-          <FormField
-            control={form.control}
-            name="saslPassword"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>
-                  {isClientCredentials ? 'Client Secret' : 'Bearer Token'}{' '}
-                  <span className="text-muted-foreground">(stored in keychain)</span>
-                </FormLabel>
-                <FormControl>
-                  <Input type="password" placeholder="leave blank to keep existing" {...field} />
-                </FormControl>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-        </>
-      )}
 
       <Separator />
       <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">

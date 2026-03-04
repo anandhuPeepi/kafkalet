@@ -8,7 +8,6 @@ import { cn } from '@shared/lib/utils'
 interface Props {
   profileId: string
   brokerId: string
-  brokerName: string
 }
 
 export function ClusterStatsBar({ profileId, brokerId }: Props) {
@@ -54,20 +53,22 @@ export function ClusterStatsBar({ profileId, brokerId }: Props) {
         </>
       ) : null}
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="ml-auto h-5 w-5"
-        onClick={load}
-        disabled={loading}
-        title="Refresh cluster stats"
-      >
-        {loading ? (
-          <Loader2 className="h-3 w-3 animate-spin" />
-        ) : (
-          <RefreshCw className="h-3 w-3" />
-        )}
-      </Button>
+      <div className="ml-auto">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-5 w-5"
+          onClick={load}
+          disabled={loading}
+          title="Refresh cluster stats"
+        >
+          {loading ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <RefreshCw className="h-3 w-3" />
+          )}
+        </Button>
+      </div>
     </div>
   )
 }

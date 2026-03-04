@@ -10,6 +10,8 @@ export function AddBrokerCredential(arg1:string,arg2:string,arg3:profile.NamedCr
 
 export function AlterTopicConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
+export function ClearActiveBrokerCredential(arg1:string,arg2:string):Promise<void>;
+
 export function CommitSession(arg1:string):Promise<void>;
 
 export function CreateProfile(arg1:string):Promise<profile.Profile>;
@@ -25,6 +27,8 @@ export function DeletePlugin(arg1:string):Promise<void>;
 export function DeleteProfile(arg1:string):Promise<void>;
 
 export function DeleteTopic(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function DeleteTopicGroup(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ExportSettings():Promise<void>;
 
@@ -59,6 +63,8 @@ export function RenameProfile(arg1:string,arg2:string):Promise<void>;
 export function ResetConsumerGroup(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function SavePlugin(arg1:plugin.Plugin):Promise<plugin.Plugin>;
+
+export function SaveTopicGroup(arg1:string,arg2:string,arg3:profile.TopicGroup):Promise<void>;
 
 export function SetBrokerPassword(arg1:string,arg2:string,arg3:string):Promise<void>;
 

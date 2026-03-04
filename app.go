@@ -8,6 +8,7 @@ import (
 	"os"
 	"sync"
 
+	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"kafkalet/internal/broker"
 	"kafkalet/internal/plugin"
@@ -47,6 +48,42 @@ func (a *App) startup(ctx context.Context) {
 	a.streamMgr = stream.NewManager(ctx, func(name string, data any) {
 		runtime.EventsEmit(ctx, name, data)
 	})
+
+	a.migrateCredentials()
+}
+
+// migrateCredentials converts legacy broker-level SASL to a named credential.
+// For each broker that has SASL.Mechanism set but no credentials, it creates
+// a "Default" credential and moves the SASL config + password there.
+func (a *App) migrateCredentials() {
+	profiles := a.profileStore.List()
+	for _, p := range profiles {
+		changed := false
+		for i := range p.Brokers {
+			b := &p.Brokers[i]
+			if b.SASL.Mechanism != "" && len(b.Credentials) == 0 {
+				credID := uuid.NewString()
+				b.Credentials = []profile.NamedCredential{{
+					ID:   credID,
+					Name: "Default",
+					SASL: b.SASL,
+				}}
+				// Move password from legacy keychain to credential keychain
+				if pw, err := profile.GetPassword(p.ID, b.ID); err == nil && pw != "" {
+					_ = profile.SaveNamedCredentialPassword(p.ID, b.ID, credID, pw)
+					_ = profile.DeletePassword(p.ID, b.ID)
+				}
+				b.ActiveCredentialID = credID
+				b.SASL = profile.SASLConfig{}
+				changed = true
+			}
+		}
+		if changed {
+			if err := a.profileStore.Update(p); err != nil {
+				slog.Warn("migrate credentials failed", "profile", p.ID, "err", err)
+			}
+		}
+	}
 }
 
 // ── Plugin management ─────────────────────────────────────────────────────────
@@ -205,6 +242,7 @@ func (a *App) ImportSettings() error {
 			continue
 		}
 		newProfile := profile.Profile{ID: ep.ID, Name: ep.Name, Brokers: make([]profile.Broker, 0, len(ep.Brokers))}
+		migratedCreds := map[string]string{} // brokerID → credID for migrated legacy SASL
 		for _, eb := range ep.Brokers {
 			b := profile.Broker{
 				ID:                 eb.ID,
@@ -220,6 +258,18 @@ func (a *App) ImportSettings() error {
 					ID: ec.ID, Name: ec.Name, SASL: ec.SASL,
 				})
 			}
+			// Migrate legacy SASL to credential
+			if b.SASL.Mechanism != "" && len(b.Credentials) == 0 {
+				credID := uuid.NewString()
+				b.Credentials = []profile.NamedCredential{{
+					ID:   credID,
+					Name: "Default",
+					SASL: b.SASL,
+				}}
+				b.ActiveCredentialID = credID
+				b.SASL = profile.SASLConfig{}
+				migratedCreds[b.ID] = credID
+			}
 			newProfile.Brokers = append(newProfile.Brokers, b)
 		}
 		if _, err := a.profileStore.Create(newProfile); err != nil {
@@ -228,9 +278,6 @@ func (a *App) ImportSettings() error {
 		}
 		// Restore passwords to keychain
 		for _, eb := range ep.Brokers {
-			if eb.SASLPassword != "" {
-				_ = profile.SavePassword(ep.ID, eb.ID, eb.SASLPassword)
-			}
 			if eb.SchemaRegistryPassword != "" {
 				_ = profile.SaveSchemaRegistryPassword(ep.ID, eb.ID, eb.SchemaRegistryPassword)
 			}
@@ -238,6 +285,11 @@ func (a *App) ImportSettings() error {
 				if ec.Password != "" {
 					_ = profile.SaveNamedCredentialPassword(ep.ID, eb.ID, ec.ID, ec.Password)
 				}
+			}
+			if credID, ok := migratedCreds[eb.ID]; ok && eb.SASLPassword != "" {
+				_ = profile.SaveNamedCredentialPassword(ep.ID, eb.ID, credID, eb.SASLPassword)
+			} else if eb.SASLPassword != "" {
+				_ = profile.SavePassword(ep.ID, eb.ID, eb.SASLPassword)
 			}
 		}
 	}
@@ -323,119 +375,105 @@ func (a *App) SwitchBrokerCredential(profileID, brokerID, credentialID string) e
 	return nil
 }
 
+// ClearActiveBrokerCredential resets the broker to use its default SASL credentials.
+func (a *App) ClearActiveBrokerCredential(profileID, brokerID string) error {
+	a.streamMgr.StopBroker(brokerID)
+	return a.profileStore.ClearActiveBrokerCredential(profileID, brokerID)
+}
+
 // TestBrokerConnection fetches the password from the keychain and sends an
 // ApiVersions request to verify the broker is reachable.
 func (a *App) TestBrokerConnection(profileID, brokerID string) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
-	}
-	return broker.TestConnection(a.ctx, *b, password)
+	return broker.TestConnection(a.ctx, b, password)
+}
+
+// ── Topic groups ──────────────────────────────────────────────────────────────
+
+// SaveTopicGroup creates or updates a topic group for a broker.
+func (a *App) SaveTopicGroup(profileID, brokerID string, g profile.TopicGroup) error {
+	return a.profileStore.SaveTopicGroup(profileID, brokerID, g)
+}
+
+// DeleteTopicGroup removes a topic group from a broker.
+func (a *App) DeleteTopicGroup(profileID, brokerID, groupID string) error {
+	return a.profileStore.DeleteTopicGroup(profileID, brokerID, groupID)
 }
 
 // ── Broker metadata ───────────────────────────────────────────────────────────
 
 // ListTopics fetches all topics with partition counts from the given broker.
 func (a *App) ListTopics(profileID, brokerID string) ([]broker.Topic, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return nil, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return nil, fmt.Errorf("get password: %w", err)
-	}
-	return broker.ListTopics(a.ctx, *b, password)
+	return broker.ListTopics(a.ctx, b, password)
 }
 
 // ── Producer ──────────────────────────────────────────────────────────────────
 
 // ProduceMessage produces a single message to a Kafka topic synchronously.
 func (a *App) ProduceMessage(profileID, brokerID string, req broker.ProduceRequest) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
-	}
-	return broker.ProduceMessage(a.ctx, *b, password, req)
+	return broker.ProduceMessage(a.ctx, b, password, req)
 }
 
 // GetTopicMetadata returns partition details (leader, replicas, ISR) for a topic.
 func (a *App) GetTopicMetadata(profileID, brokerID, topic string) (broker.TopicMetadata, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return broker.TopicMetadata{}, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return broker.TopicMetadata{}, fmt.Errorf("get password: %w", err)
-	}
-	return broker.GetTopicMetadata(a.ctx, *b, password, topic)
+	return broker.GetTopicMetadata(a.ctx, b, password, topic)
 }
 
 // ResetConsumerGroup commits new offsets for a consumer group on a topic.
 // offset: "earliest" | "latest" | unix milliseconds as string.
 func (a *App) ResetConsumerGroup(profileID, brokerID, topic, groupID, offset string) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
-	}
-	return broker.ResetConsumerGroup(a.ctx, *b, password, topic, groupID, offset)
+	return broker.ResetConsumerGroup(a.ctx, b, password, topic, groupID, offset)
 }
 
 // ListConsumerGroups returns lag metrics for all consumer groups on a topic.
 func (a *App) ListConsumerGroups(profileID, brokerID, topic string) ([]broker.GroupLag, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return nil, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return nil, fmt.Errorf("get password: %w", err)
-	}
-	return broker.ListConsumerGroupsForTopic(a.ctx, *b, password, topic)
+	return broker.ListConsumerGroupsForTopic(a.ctx, b, password, topic)
 }
 
 // GetClusterInfo returns the cluster ID, controller node ID, and broker list.
 func (a *App) GetClusterInfo(profileID, brokerID string) (broker.ClusterInfo, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return broker.ClusterInfo{}, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return broker.ClusterInfo{}, fmt.Errorf("get password: %w", err)
-	}
-	return broker.GetClusterInfo(a.ctx, *b, password)
+	return broker.GetClusterInfo(a.ctx, b, password)
 }
 
 // StartObserverAtTimestamp resolves partition offsets at the given Unix
 // millisecond timestamp and starts an observer session from those offsets.
 func (a *App) StartObserverAtTimestamp(profileID, brokerID, topic string, timestampMs int64) (string, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return "", err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return "", fmt.Errorf("get password: %w", err)
-	}
-	partitionOffsets, err := broker.GetOffsetsAtTimestamp(a.ctx, *b, password, topic, timestampMs)
+	partitionOffsets, err := broker.GetOffsetsAtTimestamp(a.ctx, b, password, topic, timestampMs)
 	if err != nil {
 		return "", fmt.Errorf("resolve timestamp offsets: %w", err)
 	}
-	return a.streamMgr.StartObserver(*b, password, topic, stream.ObserverOpts{
+	return a.streamMgr.StartObserver(b, password, topic, stream.ObserverOpts{
 		PartitionOffsets: partitionOffsets,
 		Registry:         a.buildSchemaRegistry(profileID, b),
 	})
@@ -445,54 +483,38 @@ func (a *App) StartObserverAtTimestamp(profileID, brokerID, topic string, timest
 
 // CreateTopic creates a new topic on the given broker.
 func (a *App) CreateTopic(profileID, brokerID string, req broker.CreateTopicRequest) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
-	}
-	return broker.CreateTopic(a.ctx, *b, password, req)
+	return broker.CreateTopic(a.ctx, b, password, req)
 }
 
 // DeleteTopic deletes a topic from the given broker.
 func (a *App) DeleteTopic(profileID, brokerID, topicName string) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
-	}
-	return broker.DeleteTopic(a.ctx, *b, password, topicName)
+	return broker.DeleteTopic(a.ctx, b, password, topicName)
 }
 
 // GetTopicConfig returns the configuration for a topic.
 func (a *App) GetTopicConfig(profileID, brokerID, topicName string) ([]broker.TopicConfigEntry, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return nil, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return nil, fmt.Errorf("get password: %w", err)
-	}
-	return broker.GetTopicConfig(a.ctx, *b, password, topicName)
+	return broker.GetTopicConfig(a.ctx, b, password, topicName)
 }
 
 // AlterTopicConfig updates a single configuration key for a topic.
 func (a *App) AlterTopicConfig(profileID, brokerID, topicName, key, value string) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
-	}
-	return broker.AlterTopicConfig(a.ctx, *b, password, topicName, key, value)
+	return broker.AlterTopicConfig(a.ctx, b, password, topicName, key, value)
 }
 
 // ── Stream sessions ───────────────────────────────────────────────────────────
@@ -501,15 +523,11 @@ func (a *App) AlterTopicConfig(profileID, brokerID, topicName, key, value string
 // startOffset: "latest" (default) | "earliest"
 // Returns the session ID to subscribe to "stream:<sessionID>" events.
 func (a *App) StartObserver(profileID, brokerID, topic, startOffset string) (string, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return "", err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return "", fmt.Errorf("get password: %w", err)
-	}
-	return a.streamMgr.StartObserver(*b, password, topic, stream.ObserverOpts{
+	return a.streamMgr.StartObserver(b, password, topic, stream.ObserverOpts{
 		StartOffset: startOffset,
 		Registry:    a.buildSchemaRegistry(profileID, b),
 	})
@@ -520,15 +538,11 @@ func (a *App) StartObserver(profileID, brokerID, topic, startOffset string) (str
 // startOffset: "latest" (default) | "earliest" — reset position for new groups.
 // Returns the session ID to subscribe to "stream:<sessionID>" events.
 func (a *App) StartConsumer(profileID, brokerID, topic, groupID, startOffset string) (string, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return "", err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return "", fmt.Errorf("get password: %w", err)
-	}
-	return a.streamMgr.StartConsumer(*b, password, topic, stream.ConsumerOpts{
+	return a.streamMgr.StartConsumer(b, password, topic, stream.ConsumerOpts{
 		GroupID:     groupID,
 		StartOffset: startOffset,
 		Registry:    a.buildSchemaRegistry(profileID, b),
@@ -550,53 +564,37 @@ func (a *App) StopSession(sessionID string) error {
 
 // GetClusterStats returns aggregate broker/topic/partition counts plus URP and offline partitions.
 func (a *App) GetClusterStats(profileID, brokerID string) (broker.ClusterStats, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return broker.ClusterStats{}, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return broker.ClusterStats{}, fmt.Errorf("get password: %w", err)
-	}
-	return broker.GetClusterStats(a.ctx, *b, password)
+	return broker.GetClusterStats(a.ctx, b, password)
 }
 
 // ListAllConsumerGroups returns all consumer groups with state and total lag.
 func (a *App) ListAllConsumerGroups(profileID, brokerID string) ([]broker.GroupSummary, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return nil, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return nil, fmt.Errorf("get password: %w", err)
-	}
-	return broker.ListAllConsumerGroups(a.ctx, *b, password)
+	return broker.ListAllConsumerGroups(a.ctx, b, password)
 }
 
 // GetConsumerGroupDetail returns per-topic/per-partition lag for a single group.
 func (a *App) GetConsumerGroupDetail(profileID, brokerID, groupID string) (broker.GroupDetail, error) {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return broker.GroupDetail{}, err
 	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return broker.GroupDetail{}, fmt.Errorf("get password: %w", err)
-	}
-	return broker.GetConsumerGroupDetail(a.ctx, *b, password, groupID)
+	return broker.GetConsumerGroupDetail(a.ctx, b, password, groupID)
 }
 
 // StartRateWatcher starts a goroutine that polls LEO for all topics every 30s
 // and emits snapshots on the "rate:<brokerID>" event. Stops any previous watcher.
 func (a *App) StartRateWatcher(profileID, brokerID string) error {
-	b, err := a.findBroker(profileID, brokerID)
+	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
-	}
-	password, err := a.resolvePassword(profileID, brokerID)
-	if err != nil {
-		return fmt.Errorf("get password: %w", err)
 	}
 
 	a.rateWatchMu.Lock()
@@ -606,7 +604,7 @@ func (a *App) StartRateWatcher(profileID, brokerID string) error {
 	}
 
 	eventName := "rate:" + brokerID
-	cancel, err := broker.StartRateWatcher(a.ctx, *b, password, 30, func(snap broker.RateSnapshot) {
+	cancel, err := broker.StartRateWatcher(a.ctx, b, password, 30, func(snap broker.RateSnapshot) {
 		runtime.EventsEmit(a.ctx, eventName, snap)
 	})
 	if err != nil {
@@ -628,23 +626,49 @@ func (a *App) StopRateWatcher() {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// resolvePassword returns the active password for a broker.
-// If the broker has an ActiveCredentialID, returns the named credential password;
-// otherwise falls back to the legacy broker-level password.
-func (a *App) resolvePassword(profileID, brokerID string) (string, error) {
+// resolveBrokerAuth returns a copy of the broker with SASL overridden by the
+// active credential (if any) and the corresponding password.
+// 1. ActiveCredentialID set → use that credential's SASL + password
+// 2. No active credential but credentials exist → auto-select first
+// 3. No credentials → empty SASL, empty password (no auth)
+func (a *App) resolveBrokerAuth(profileID, brokerID string) (profile.Broker, string, error) {
 	b, err := a.findBroker(profileID, brokerID)
 	if err != nil {
-		return "", err
+		return profile.Broker{}, "", err
 	}
-	if b.ActiveCredentialID != "" {
-		return profile.GetNamedCredentialPassword(profileID, brokerID, b.ActiveCredentialID)
+	bc := *b // work on a copy
+
+	if bc.ActiveCredentialID != "" {
+		for _, c := range bc.Credentials {
+			if c.ID == bc.ActiveCredentialID {
+				bc.SASL = c.SASL
+				pw, err := profile.GetNamedCredentialPassword(profileID, brokerID, c.ID)
+				if err != nil {
+					return profile.Broker{}, "", fmt.Errorf("credential password: %w", err)
+				}
+				return bc, pw, nil
+			}
+		}
 	}
-	return profile.GetPassword(profileID, brokerID)
+
+	if len(bc.Credentials) > 0 {
+		c := bc.Credentials[0]
+		bc.SASL = c.SASL
+		pw, err := profile.GetNamedCredentialPassword(profileID, brokerID, c.ID)
+		if err != nil {
+			return profile.Broker{}, "", fmt.Errorf("credential password: %w", err)
+		}
+		return bc, pw, nil
+	}
+
+	// No credentials — no auth
+	bc.SASL = profile.SASLConfig{}
+	return bc, "", nil
 }
 
 // buildSchemaRegistry creates a *schema.Registry from the broker's SchemaRegistry config.
 // Returns nil if the broker has no Schema Registry URL configured.
-func (a *App) buildSchemaRegistry(profileID string, b *profile.Broker) *schema.Registry {
+func (a *App) buildSchemaRegistry(profileID string, b profile.Broker) *schema.Registry {
 	if b.SchemaRegistry.URL == "" {
 		return nil
 	}

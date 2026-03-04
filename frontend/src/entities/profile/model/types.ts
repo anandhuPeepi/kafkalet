@@ -25,6 +25,12 @@ export interface NamedCredential {
   sasl: SASLConfig
 }
 
+export interface TopicGroup {
+  id: string
+  name: string
+  topics: string[]
+}
+
 export interface Broker {
   id: string
   name: string
@@ -34,6 +40,7 @@ export interface Broker {
   schemaRegistry: SchemaRegistryConfig
   credentials?: NamedCredential[]
   activeCredentialID?: string
+  topicGroups?: TopicGroup[]
 }
 
 export interface Profile {

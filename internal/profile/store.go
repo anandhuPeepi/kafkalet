@@ -288,6 +288,76 @@ func (s *Store) SetActiveBrokerCredential(profileID, brokerID, credentialID stri
 	return fmt.Errorf("profile %q not found", profileID)
 }
 
+// ClearActiveBrokerCredential resets the active credential for a broker back to default (broker-level SASL).
+func (s *Store) ClearActiveBrokerCredential(profileID, brokerID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Profiles {
+		if s.data.Profiles[i].ID == profileID {
+			for j := range s.data.Profiles[i].Brokers {
+				if s.data.Profiles[i].Brokers[j].ID == brokerID {
+					s.data.Profiles[i].Brokers[j].ActiveCredentialID = ""
+					return s.save()
+				}
+			}
+			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+		}
+	}
+	return fmt.Errorf("profile %q not found", profileID)
+}
+
+// SaveTopicGroup creates or updates a topic group for a broker (upsert by ID).
+func (s *Store) SaveTopicGroup(profileID, brokerID string, g TopicGroup) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if g.ID == "" {
+		g.ID = uuid.NewString()
+	}
+	for i := range s.data.Profiles {
+		if s.data.Profiles[i].ID == profileID {
+			for j := range s.data.Profiles[i].Brokers {
+				if s.data.Profiles[i].Brokers[j].ID == brokerID {
+					groups := s.data.Profiles[i].Brokers[j].TopicGroups
+					for k := range groups {
+						if groups[k].ID == g.ID {
+							s.data.Profiles[i].Brokers[j].TopicGroups[k] = g
+							return s.save()
+						}
+					}
+					s.data.Profiles[i].Brokers[j].TopicGroups = append(groups, g)
+					return s.save()
+				}
+			}
+			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+		}
+	}
+	return fmt.Errorf("profile %q not found", profileID)
+}
+
+// DeleteTopicGroup removes a topic group from a broker.
+func (s *Store) DeleteTopicGroup(profileID, brokerID, groupID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Profiles {
+		if s.data.Profiles[i].ID == profileID {
+			for j := range s.data.Profiles[i].Brokers {
+				if s.data.Profiles[i].Brokers[j].ID == brokerID {
+					groups := s.data.Profiles[i].Brokers[j].TopicGroups
+					for k, tg := range groups {
+						if tg.ID == groupID {
+							s.data.Profiles[i].Brokers[j].TopicGroups = append(groups[:k], groups[k+1:]...)
+							return s.save()
+						}
+					}
+					return fmt.Errorf("topic group %q not found", groupID)
+				}
+			}
+			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+		}
+	}
+	return fmt.Errorf("profile %q not found", profileID)
+}
+
 // DeleteBroker removes a broker from a profile.
 func (s *Store) DeleteBroker(profileID, brokerID string) error {
 	s.mu.Lock()
