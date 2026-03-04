@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
+	"kafkalet/internal/apperr"
 	"kafkalet/internal/config"
 )
 
@@ -79,7 +81,7 @@ func (s *Store) Get(id string) (*Profile, error) {
 			return &p, nil
 		}
 	}
-	return nil, fmt.Errorf("profile %q not found", id)
+	return nil, apperr.NotFound("profile", id)
 }
 
 // ActiveProfile returns the currently active profile, or nil if none exist.
@@ -112,8 +114,12 @@ func (s *Store) ActiveProfileID() string {
 
 // Create adds a new profile. Assigns a UUID if ID is empty.
 func (s *Store) Create(p Profile) (Profile, error) {
+	if strings.TrimSpace(p.Name) == "" {
+		return Profile{}, apperr.Required("profile name")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	p.Name = strings.TrimSpace(p.Name)
 	if p.ID == "" {
 		p.ID = uuid.NewString()
 	}
@@ -137,7 +143,7 @@ func (s *Store) Update(p Profile) error {
 			return s.save()
 		}
 	}
-	return fmt.Errorf("profile %q not found", p.ID)
+	return apperr.NotFound("profile", p.ID)
 }
 
 // Delete removes a profile. If it was active, promotes the next profile.
@@ -156,7 +162,7 @@ func (s *Store) Delete(id string) error {
 			return s.save()
 		}
 	}
-	return fmt.Errorf("profile %q not found", id)
+	return apperr.NotFound("profile", id)
 }
 
 // SetActive marks the given profile as active.
@@ -169,13 +175,17 @@ func (s *Store) SetActive(id string) error {
 			return s.save()
 		}
 	}
-	return fmt.Errorf("profile %q not found", id)
+	return apperr.NotFound("profile", id)
 }
 
 // AddBroker appends a broker to the profile. Assigns a UUID if broker ID is empty.
 func (s *Store) AddBroker(profileID string, b Broker) (Broker, error) {
+	if strings.TrimSpace(b.Name) == "" {
+		return Broker{}, apperr.Required("broker name")
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	b.Name = strings.TrimSpace(b.Name)
 	if b.ID == "" {
 		b.ID = uuid.NewString()
 	}
@@ -188,7 +198,7 @@ func (s *Store) AddBroker(profileID string, b Broker) (Broker, error) {
 			return b, s.save()
 		}
 	}
-	return Broker{}, fmt.Errorf("profile %q not found", profileID)
+	return Broker{}, apperr.NotFound("profile", profileID)
 }
 
 // UpdateBroker replaces a broker within a profile.
@@ -203,10 +213,10 @@ func (s *Store) UpdateBroker(profileID string, b Broker) error {
 					return s.save()
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", b.ID, profileID)
+			return apperr.NotFound("broker", b.ID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }
 
 // AddBrokerCredential appends a named credential to a broker. Assigns a UUID if ID is empty.
@@ -226,10 +236,10 @@ func (s *Store) AddBrokerCredential(profileID, brokerID string, c NamedCredentia
 					return c, s.save()
 				}
 			}
-			return NamedCredential{}, fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return NamedCredential{}, apperr.NotFound("broker", brokerID)
 		}
 	}
-	return NamedCredential{}, fmt.Errorf("profile %q not found", profileID)
+	return NamedCredential{}, apperr.NotFound("profile", profileID)
 }
 
 // DeleteBrokerCredential removes a named credential from a broker.
@@ -250,13 +260,13 @@ func (s *Store) DeleteBrokerCredential(profileID, brokerID, credentialID string)
 							return s.save()
 						}
 					}
-					return fmt.Errorf("credential %q not found", credentialID)
+					return apperr.NotFound("credential", credentialID)
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return apperr.NotFound("broker", brokerID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }
 
 // SetActiveBrokerCredential sets the active credential ID for a broker.
@@ -276,16 +286,16 @@ func (s *Store) SetActiveBrokerCredential(profileID, brokerID, credentialID stri
 						}
 					}
 					if !found {
-						return fmt.Errorf("credential %q not found", credentialID)
+						return apperr.NotFound("credential", credentialID)
 					}
 					s.data.Profiles[i].Brokers[j].ActiveCredentialID = credentialID
 					return s.save()
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return apperr.NotFound("broker", brokerID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }
 
 // ClearActiveBrokerCredential resets the active credential for a broker back to default (broker-level SASL).
@@ -300,10 +310,10 @@ func (s *Store) ClearActiveBrokerCredential(profileID, brokerID string) error {
 					return s.save()
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return apperr.NotFound("broker", brokerID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }
 
 // SaveTopicGroup creates or updates a topic group for a broker (upsert by ID).
@@ -328,10 +338,10 @@ func (s *Store) SaveTopicGroup(profileID, brokerID string, g TopicGroup) error {
 					return s.save()
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return apperr.NotFound("broker", brokerID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }
 
 // DeleteTopicGroup removes a topic group from a broker.
@@ -349,13 +359,13 @@ func (s *Store) DeleteTopicGroup(profileID, brokerID, groupID string) error {
 							return s.save()
 						}
 					}
-					return fmt.Errorf("topic group %q not found", groupID)
+					return apperr.NotFound("topic group", groupID)
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return apperr.NotFound("broker", brokerID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }
 
 // DeleteBroker removes a broker from a profile.
@@ -371,8 +381,8 @@ func (s *Store) DeleteBroker(profileID, brokerID string) error {
 					return s.save()
 				}
 			}
-			return fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+			return apperr.NotFound("broker", brokerID)
 		}
 	}
-	return fmt.Errorf("profile %q not found", profileID)
+	return apperr.NotFound("profile", profileID)
 }

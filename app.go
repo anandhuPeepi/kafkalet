@@ -6,10 +6,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"kafkalet/internal/apperr"
 	"kafkalet/internal/broker"
 	"kafkalet/internal/plugin"
 	"kafkalet/internal/profile"
@@ -114,7 +116,10 @@ func (a *App) GetActiveProfile() (*profile.Profile, error) {
 }
 
 func (a *App) CreateProfile(name string) (profile.Profile, error) {
-	return a.profileStore.Create(profile.Profile{Name: name})
+	if strings.TrimSpace(name) == "" {
+		return profile.Profile{}, apperr.Required("name")
+	}
+	return a.profileStore.Create(profile.Profile{Name: strings.TrimSpace(name)})
 }
 
 func (a *App) UpdateProfile(p profile.Profile) error {
@@ -304,11 +309,14 @@ func (a *App) ImportSettings() error {
 
 // RenameProfile updates only the name of a profile.
 func (a *App) RenameProfile(id, name string) error {
+	if strings.TrimSpace(name) == "" {
+		return apperr.Required("name")
+	}
 	p, err := a.profileStore.Get(id)
 	if err != nil {
 		return err
 	}
-	p.Name = name
+	p.Name = strings.TrimSpace(name)
 	return a.profileStore.Update(*p)
 }
 
@@ -504,6 +512,15 @@ func (a *App) StartObserverAtTimestamp(profileID, brokerID, topic string, timest
 
 // CreateTopic creates a new topic on the given broker.
 func (a *App) CreateTopic(profileID, brokerID string, req broker.CreateTopicRequest) error {
+	if strings.TrimSpace(req.Name) == "" {
+		return apperr.Required("topic name")
+	}
+	if req.Partitions <= 0 {
+		return apperr.Positive("partitions")
+	}
+	if req.ReplicationFactor <= 0 {
+		return apperr.Positive("replication factor")
+	}
 	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
@@ -531,6 +548,9 @@ func (a *App) GetTopicConfig(profileID, brokerID, topicName string) ([]broker.To
 
 // AlterTopicConfig updates a single configuration key for a topic.
 func (a *App) AlterTopicConfig(profileID, brokerID, topicName, key, value string) error {
+	if key == "" {
+		return apperr.Required("config key")
+	}
 	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return err
@@ -559,6 +579,9 @@ func (a *App) StartObserver(profileID, brokerID, topic, startOffset string) (str
 // startOffset: "latest" (default) | "earliest" — reset position for new groups.
 // Returns the session ID to subscribe to "stream:<sessionID>" events.
 func (a *App) StartConsumer(profileID, brokerID, topic, groupID, startOffset string) (string, error) {
+	if strings.TrimSpace(groupID) == "" {
+		return "", apperr.Required("group ID")
+	}
 	b, password, err := a.resolveBrokerAuth(profileID, brokerID)
 	if err != nil {
 		return "", err
@@ -708,5 +731,5 @@ func (a *App) findBroker(profileID, brokerID string) (*profile.Broker, error) {
 			return &p.Brokers[i], nil
 		}
 	}
-	return nil, fmt.Errorf("broker %q not found in profile %q", brokerID, profileID)
+	return nil, apperr.NotFound("broker", brokerID)
 }

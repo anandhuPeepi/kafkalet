@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"kafkalet/internal/apperr"
 	"kafkalet/internal/profile"
 	"kafkalet/internal/schema"
 )
@@ -142,11 +143,11 @@ func (m *Manager) CommitSession(ctx context.Context, sessionID string) error {
 	s, ok := m.sessions[sessionID]
 	m.mu.RUnlock()
 	if !ok {
-		return fmt.Errorf("session %q not found", sessionID)
+		return apperr.NotFound("session", sessionID)
 	}
 	cs, ok := s.(*ConsumerSession)
 	if !ok {
-		return fmt.Errorf("session %q is not a consumer session", sessionID)
+		return apperr.Validation("session", "not a consumer session")
 	}
 	return cs.Commit(ctx)
 }

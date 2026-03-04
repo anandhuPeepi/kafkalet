@@ -5,8 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/google/uuid"
+	"kafkalet/internal/apperr"
 	"kafkalet/internal/config"
 )
 
@@ -36,6 +39,18 @@ func (s *Store) List() ([]Plugin, error) {
 
 // Save creates or updates a plugin. If p.ID is empty, a new UUID is assigned.
 func (s *Store) Save(p Plugin) (Plugin, error) {
+	if strings.TrimSpace(p.Name) == "" {
+		return Plugin{}, apperr.Required("plugin name")
+	}
+	if strings.TrimSpace(p.TopicPattern) == "" {
+		return Plugin{}, apperr.Required("topic pattern")
+	}
+	if _, err := regexp.Compile(p.TopicPattern); err != nil {
+		return Plugin{}, apperr.Validation("topic pattern", "invalid regex")
+	}
+	if strings.TrimSpace(p.Script) == "" {
+		return Plugin{}, apperr.Required("script")
+	}
 	plugins, err := s.List()
 	if err != nil {
 		return Plugin{}, err
@@ -80,5 +95,9 @@ func (s *Store) write(plugins []Plugin) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return fmt.Errorf("write plugins tmp: %w", err)
+	}
+	return os.Rename(tmp, path)
 }
