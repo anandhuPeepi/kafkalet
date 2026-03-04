@@ -1,0 +1,25 @@
+title: kafkalet
+description: A desktop Kafka client for developers who want clarity, not complexity.
+url: https://sneiko.github.io
+baseurl: /kafkalet
+
+remote_theme: pages-themes/cayman@v0.2.0
+plugins:
+  - jekyll-remote-theme
+
+# Exclude build artifacts and dev files from the Jekyll site
+exclude:
+  - Makefile
+  - go.mod
+  - go.sum
+  - "*.go"
+  - internal/
+  - frontend/
+  - build/
+  - wails.json
+  - node_modules/
+  - vendor/
+  - docs/
+  - .github/
+  - .gitignore
+  - CLAUDE.md

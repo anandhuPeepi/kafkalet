@@ -1,4 +1,5 @@
 .DS_Store
 .claude/
 CLAUDE.md
-docs/
+docs/*
+!docs/improvement-plan.md
