@@ -57,6 +57,7 @@ export function SettingsPage({ onBack }: Props) {
   const [editingProfileId, setEditingProfileId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
   const [showExportWarning, setShowExportWarning] = useState(false)
+  const [includeSecrets, setIncludeSecrets] = useState(false)
   const editInputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
@@ -135,7 +136,7 @@ export function SettingsPage({ onBack }: Props) {
   const doExport = async () => {
     setShowExportWarning(false)
     try {
-      await ExportSettings()
+      await ExportSettings(includeSecrets)
     } catch (err) {
       console.error('Export failed:', err)
     }
@@ -345,15 +346,25 @@ export function SettingsPage({ onBack }: Props) {
       />
 
       {/* Export warning dialog */}
-      <AlertDialog open={showExportWarning} onOpenChange={setShowExportWarning}>
+      <AlertDialog open={showExportWarning} onOpenChange={(v) => { setShowExportWarning(v); if (!v) setIncludeSecrets(false) }}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Export Settings</AlertDialogTitle>
             <AlertDialogDescription>
-              The exported file will contain your broker passwords in plaintext.
-              Store it securely and do not share it.
+              {includeSecrets
+                ? 'The exported file will contain your broker passwords in plaintext. Store it securely and do not share it.'
+                : 'Passwords will not be included. Safe to share with your team.'}
             </AlertDialogDescription>
           </AlertDialogHeader>
+          <label className="flex items-center gap-2 px-6 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={includeSecrets}
+              onChange={(e) => setIncludeSecrets(e.target.checked)}
+              className="h-4 w-4 rounded border-border accent-primary"
+            />
+            <span className="text-sm">Include passwords</span>
+          </label>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={doExport}>Export</AlertDialogAction>

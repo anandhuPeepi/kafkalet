@@ -54,8 +54,8 @@ export function DeleteTopicGroup(arg1, arg2, arg3) {
   return window['go']['main']['App']['DeleteTopicGroup'](arg1, arg2, arg3);
 }
 
-export function ExportSettings() {
-  return window['go']['main']['App']['ExportSettings']();
+export function ExportSettings(arg1) {
+  return window['go']['main']['App']['ExportSettings'](arg1);
 }
 
 export function GetActiveProfile() {

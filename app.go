@@ -163,8 +163,9 @@ type exportCredential struct {
 	Password string             `json:"password,omitempty"`
 }
 
-// ExportSettings saves all profiles including passwords to a user-chosen JSON file.
-func (a *App) ExportSettings() error {
+// ExportSettings saves all profiles to a user-chosen JSON file.
+// When includeSecrets is false, passwords are omitted from the export.
+func (a *App) ExportSettings(includeSecrets bool) error {
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		DefaultFilename: "kafkalet-backup.json",
 		Filters: []runtime.FileFilter{
@@ -190,11 +191,15 @@ func (a *App) ExportSettings() error {
 				SchemaRegistry:     b.SchemaRegistry,
 				ActiveCredentialID: b.ActiveCredentialID,
 			}
-			eb.SASLPassword, _ = profile.GetPassword(p.ID, b.ID)
-			eb.SchemaRegistryPassword, _ = profile.GetSchemaRegistryPassword(p.ID, b.ID)
+			if includeSecrets {
+				eb.SASLPassword, _ = profile.GetPassword(p.ID, b.ID)
+				eb.SchemaRegistryPassword, _ = profile.GetSchemaRegistryPassword(p.ID, b.ID)
+			}
 			for _, cred := range b.Credentials {
 				ec := exportCredential{ID: cred.ID, Name: cred.Name, SASL: cred.SASL}
-				ec.Password, _ = profile.GetNamedCredentialPassword(p.ID, b.ID, cred.ID)
+				if includeSecrets {
+					ec.Password, _ = profile.GetNamedCredentialPassword(p.ID, b.ID, cred.ID)
+				}
 				eb.Credentials = append(eb.Credentials, ec)
 			}
 			ep.Brokers = append(ep.Brokers, eb)

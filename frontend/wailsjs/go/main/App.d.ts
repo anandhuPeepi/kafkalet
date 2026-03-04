@@ -30,7 +30,7 @@ export function DeleteTopic(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function DeleteTopicGroup(arg1:string,arg2:string,arg3:string):Promise<void>;
 
-export function ExportSettings():Promise<void>;
+export function ExportSettings(arg1:boolean):Promise<void>;
 
 export function GetActiveProfile():Promise<profile.Profile>;
 
