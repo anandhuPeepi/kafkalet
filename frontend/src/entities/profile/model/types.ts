@@ -41,6 +41,7 @@ export interface Broker {
   credentials?: NamedCredential[]
   activeCredentialID?: string
   topicGroups?: TopicGroup[]
+  pinnedTopics?: string[]
 }
 
 export interface Profile {

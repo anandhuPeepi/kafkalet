@@ -38,6 +38,10 @@ export function DeleteBrokerCredential(arg1, arg2, arg3) {
   return window['go']['main']['App']['DeleteBrokerCredential'](arg1, arg2, arg3);
 }
 
+export function DeleteConsumerGroup(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DeleteConsumerGroup'](arg1, arg2, arg3);
+}
+
 export function DeletePlugin(arg1) {
   return window['go']['main']['App']['DeletePlugin'](arg1);
 }
@@ -52,6 +56,10 @@ export function DeleteTopic(arg1, arg2, arg3) {
 
 export function DeleteTopicGroup(arg1, arg2, arg3) {
   return window['go']['main']['App']['DeleteTopicGroup'](arg1, arg2, arg3);
+}
+
+export function DescribeConsumerGroupMembers(arg1, arg2, arg3) {
+  return window['go']['main']['App']['DescribeConsumerGroupMembers'](arg1, arg2, arg3);
 }
 
 export function ExportSettings(arg1) {
@@ -108,6 +116,10 @@ export function ListProfiles() {
 
 export function ListTopics(arg1, arg2) {
   return window['go']['main']['App']['ListTopics'](arg1, arg2);
+}
+
+export function PinTopic(arg1, arg2, arg3) {
+  return window['go']['main']['App']['PinTopic'](arg1, arg2, arg3);
 }
 
 export function ProduceMessage(arg1, arg2, arg3) {
@@ -180,6 +192,10 @@ export function TestBrokerConnection(arg1, arg2) {
 
 export function TestConnectionDirect(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['TestConnectionDirect'](arg1, arg2, arg3, arg4);
+}
+
+export function UnpinTopic(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UnpinTopic'](arg1, arg2, arg3);
 }
 
 export function UpdateBroker(arg1, arg2) {

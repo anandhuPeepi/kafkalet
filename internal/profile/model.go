@@ -34,6 +34,7 @@ type Broker struct {
 	Credentials         []NamedCredential    `json:"credentials,omitempty"`
 	ActiveCredentialID  string               `json:"activeCredentialID,omitempty"`
 	TopicGroups         []TopicGroup         `json:"topicGroups,omitempty"`
+	PinnedTopics        []string             `json:"pinnedTopics,omitempty"`
 }
 
 // SchemaRegistryConfig holds connection settings for a Confluent-compatible Schema Registry.

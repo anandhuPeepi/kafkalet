@@ -193,6 +193,8 @@ type exportBroker struct {
 	SASLPassword           string                       `json:"saslPassword,omitempty"`
 	SchemaRegistryPassword string                       `json:"schemaRegistryPassword,omitempty"`
 	Credentials            []exportCredential           `json:"credentials,omitempty"`
+	TopicGroups            []profile.TopicGroup         `json:"topicGroups,omitempty"`
+	PinnedTopics           []string                     `json:"pinnedTopics,omitempty"`
 }
 
 type exportCredential struct {
@@ -229,6 +231,8 @@ func (a *App) ExportSettings(includeSecrets bool) error {
 				TLS:                b.TLS,
 				SchemaRegistry:     b.SchemaRegistry,
 				ActiveCredentialID: b.ActiveCredentialID,
+				TopicGroups:        b.TopicGroups,
+				PinnedTopics:       b.PinnedTopics,
 			}
 			if includeSecrets {
 				eb.SASLPassword, _ = profile.GetPassword(p.ID, b.ID)
@@ -296,6 +300,8 @@ func (a *App) ImportSettings() error {
 				TLS:                eb.TLS,
 				SchemaRegistry:     eb.SchemaRegistry,
 				ActiveCredentialID: eb.ActiveCredentialID,
+				TopicGroups:        eb.TopicGroups,
+				PinnedTopics:       eb.PinnedTopics,
 			}
 			for _, ec := range eb.Credentials {
 				b.Credentials = append(b.Credentials, profile.NamedCredential{
@@ -468,6 +474,18 @@ func (a *App) TestBrokerConnection(profileID, brokerID string) error {
 		return err
 	}
 	return broker.TestConnection(a.ctx, b, password)
+}
+
+// ── Pinned topics ─────────────────────────────────────────────────────────────
+
+// PinTopic adds a topic to the broker's pinned list.
+func (a *App) PinTopic(profileID, brokerID, topic string) error {
+	return a.profileStore.PinTopic(profileID, brokerID, topic)
+}
+
+// UnpinTopic removes a topic from the broker's pinned list.
+func (a *App) UnpinTopic(profileID, brokerID, topic string) error {
+	return a.profileStore.UnpinTopic(profileID, brokerID, topic)
 }
 
 // ── Topic groups ──────────────────────────────────────────────────────────────
@@ -730,6 +748,26 @@ func (a *App) ListAllConsumerGroups(profileID, brokerID string) ([]broker.GroupS
 	}
 	defer cancel()
 	return broker.ListAllConsumerGroups(ctx, client)
+}
+
+// DescribeConsumerGroupMembers returns the members of a consumer group.
+func (a *App) DescribeConsumerGroupMembers(profileID, brokerID, groupID string) ([]broker.GroupMemberInfo, error) {
+	ctx, cancel, client, err := a.pooledClient(profileID, brokerID)
+	if err != nil {
+		return nil, err
+	}
+	defer cancel()
+	return broker.DescribeConsumerGroupMembers(ctx, client, groupID)
+}
+
+// DeleteConsumerGroup deletes a consumer group from the cluster.
+func (a *App) DeleteConsumerGroup(profileID, brokerID, groupID string) error {
+	ctx, cancel, client, err := a.pooledClient(profileID, brokerID)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	return broker.DeleteConsumerGroup(ctx, client, groupID)
 }
 
 // GetConsumerGroupDetail returns per-topic/per-partition lag for a single group.

@@ -5,6 +5,7 @@ export type {
   GroupDetail,
   GroupLagEntry,
   GroupPartitionLag,
+  GroupMemberInfo,
   TopicRate,
   RateSnapshot,
 } from './model/types'

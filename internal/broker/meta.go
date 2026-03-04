@@ -538,6 +538,65 @@ func AlterTopicConfig(ctx context.Context, client *kgo.Client, topic, key, value
 	return alterErr
 }
 
+// GroupMemberInfo describes a single member of a consumer group.
+type GroupMemberInfo struct {
+	MemberID   string   `json:"memberId"`
+	ClientID   string   `json:"clientId"`
+	ClientHost string   `json:"clientHost"`
+	Topics     []string `json:"topics"`
+}
+
+// DescribeConsumerGroupMembers returns the members of a consumer group with their assigned topics.
+func DescribeConsumerGroupMembers(ctx context.Context, client *kgo.Client, groupID string) ([]GroupMemberInfo, error) {
+	adm := kadm.NewClient(client)
+	described, err := adm.DescribeGroups(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("describe group: %w", err)
+	}
+	dg, ok := described[groupID]
+	if !ok {
+		return nil, fmt.Errorf("group %q not found", groupID)
+	}
+
+	members := make([]GroupMemberInfo, 0, len(dg.Members))
+	for _, m := range dg.Members {
+		topicSet := make(map[string]bool)
+		if assigned, ok := m.Assigned.AsConsumer(); ok {
+			for _, t := range assigned.Topics {
+				topicSet[t.Topic] = true
+			}
+		}
+		topics := make([]string, 0, len(topicSet))
+		for t := range topicSet {
+			topics = append(topics, t)
+		}
+		sort.Strings(topics)
+		members = append(members, GroupMemberInfo{
+			MemberID:   m.MemberID,
+			ClientID:   m.ClientID,
+			ClientHost: m.ClientHost,
+			Topics:     topics,
+		})
+	}
+	sort.Slice(members, func(i, j int) bool {
+		return members[i].ClientID < members[j].ClientID
+	})
+	return members, nil
+}
+
+// DeleteConsumerGroup deletes a consumer group from the cluster.
+func DeleteConsumerGroup(ctx context.Context, client *kgo.Client, groupID string) error {
+	adm := kadm.NewClient(client)
+	resp, err := adm.DeleteGroups(ctx, groupID)
+	if err != nil {
+		return fmt.Errorf("delete group: %w", err)
+	}
+	if r, ok := resp[groupID]; ok && r.Err != nil {
+		return fmt.Errorf("delete group %q: %w", groupID, r.Err)
+	}
+	return nil
+}
+
 // GetOffsetsAtTimestamp resolves, for each partition of a topic, the first
 // offset whose timestamp is at or after the given Unix millisecond value.
 func GetOffsetsAtTimestamp(ctx context.Context, client *kgo.Client, topic string, timestampMs int64) (map[int32]int64, error) {

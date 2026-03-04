@@ -22,6 +22,8 @@ export function DeleteBroker(arg1:string,arg2:string):Promise<void>;
 
 export function DeleteBrokerCredential(arg1:string,arg2:string,arg3:string):Promise<void>;
 
+export function DeleteConsumerGroup(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function DeletePlugin(arg1:string):Promise<void>;
 
 export function DeleteProfile(arg1:string):Promise<void>;
@@ -29,6 +31,8 @@ export function DeleteProfile(arg1:string):Promise<void>;
 export function DeleteTopic(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function DeleteTopicGroup(arg1:string,arg2:string,arg3:string):Promise<void>;
+
+export function DescribeConsumerGroupMembers(arg1:string,arg2:string,arg3:string):Promise<Array<broker.GroupMemberInfo>>;
 
 export function ExportSettings(arg1:boolean):Promise<void>;
 
@@ -57,6 +61,8 @@ export function ListPlugins():Promise<Array<plugin.Plugin>>;
 export function ListProfiles():Promise<Array<profile.Profile>>;
 
 export function ListTopics(arg1:string,arg2:string):Promise<Array<broker.Topic>>;
+
+export function PinTopic(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function ProduceMessage(arg1:string,arg2:string,arg3:broker.ProduceRequest):Promise<void>;
 
@@ -93,6 +99,8 @@ export function SwitchProfile(arg1:string):Promise<void>;
 export function TestBrokerConnection(arg1:string,arg2:string):Promise<void>;
 
 export function TestConnectionDirect(arg1:Array<string>,arg2:profile.TLSConfig,arg3:profile.SASLConfig,arg4:string):Promise<void>;
+
+export function UnpinTopic(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateBroker(arg1:string,arg2:profile.Broker):Promise<void>;
 

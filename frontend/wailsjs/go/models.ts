@@ -177,6 +177,24 @@ export namespace broker {
 		}
 	}
 	
+	export class GroupMemberInfo {
+	    memberId: string;
+	    clientId: string;
+	    clientHost: string;
+	    topics: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new GroupMemberInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.memberId = source["memberId"];
+	        this.clientId = source["clientId"];
+	        this.clientHost = source["clientHost"];
+	        this.topics = source["topics"];
+	    }
+	}
 	export class GroupSummary {
 	    groupId: string;
 	    state: string;
@@ -470,6 +488,7 @@ export namespace profile {
 	    credentials?: NamedCredential[];
 	    activeCredentialID?: string;
 	    topicGroups?: TopicGroup[];
+	    pinnedTopics?: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Broker(source);
@@ -486,6 +505,7 @@ export namespace profile {
 	        this.credentials = this.convertValues(source["credentials"], NamedCredential);
 	        this.activeCredentialID = source["activeCredentialID"];
 	        this.topicGroups = this.convertValues(source["topicGroups"], TopicGroup);
+	        this.pinnedTopics = source["pinnedTopics"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

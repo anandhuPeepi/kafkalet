@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from 'react'
-import { RefreshCw, Loader2, Plus, ChevronRight, ChevronDown, FolderOpen, Search } from 'lucide-react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { RefreshCw, Loader2, Plus, ChevronRight, ChevronDown, FolderOpen, Search, Star } from 'lucide-react'
 import { toast } from 'sonner'
 
+import { cn } from '@/shared/lib/utils'
 import { Button } from '@/shared/ui/button'
 import { IconButton } from '@/shared/ui/icon-button'
 import { Input } from '@/shared/ui/input'
+import { Checkbox } from '@/shared/ui/checkbox'
 import {
   Dialog,
   DialogContent,
@@ -35,7 +37,7 @@ import { ConsumeDialog } from '@features/topic-consume'
 import { ProduceDialog } from '@features/message-produce'
 import { TopicInfoDialog } from '@features/topic-info'
 import { CreateTopicDialog } from '@features/topic-create'
-import { ListTopics, DeleteTopic, SaveTopicGroup, DeleteTopicGroup, ListProfiles, InvalidateTopicsCache } from '@shared/api'
+import { ListTopics, DeleteTopic, SaveTopicGroup, DeleteTopicGroup, ListProfiles, InvalidateTopicsCache, PinTopic, UnpinTopic } from '@shared/api'
 
 interface TopicTarget {
   profileId: string
@@ -55,6 +57,8 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
   const [topics, setTopics] = useState<Topic[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [regexEnabled, setRegexEnabled] = useState(false)
+  const [minPartitions, setMinPartitions] = useState('')
 
   const [observeTarget, setObserveTarget] = useState<TopicTarget | null>(null)
   const [consumeTarget, setConsumeTarget] = useState<TopicTarget | null>(null)
@@ -72,6 +76,7 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
   const profile = profiles.find((p) => p.id === profileId)
   const broker = profile?.brokers.find((b) => b.id === brokerId)
   const topicGroups = broker?.topicGroups ?? []
+  const pinnedTopics = broker?.pinnedTopics ?? []
 
   const load = useCallback(async (force?: boolean) => {
     setLoading(true)
@@ -91,9 +96,43 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
     load()
   }, [load])
 
-  const filtered = topics.filter((t) =>
-    t.name.toLowerCase().includes(search.toLowerCase())
-  )
+  // Regex validation
+  const regexError = useMemo(() => {
+    if (!regexEnabled || !search) return false
+    try {
+      new RegExp(search)
+      return false
+    } catch {
+      return true
+    }
+  }, [search, regexEnabled])
+
+  const filtered = useMemo(() => {
+    let result = topics
+
+    // Text / regex filter
+    if (search && !regexError) {
+      if (regexEnabled) {
+        try {
+          const re = new RegExp(search, 'i')
+          result = result.filter((t) => re.test(t.name))
+        } catch {
+          // fallback — no filter on invalid regex
+        }
+      } else {
+        const q = search.toLowerCase()
+        result = result.filter((t) => t.name.toLowerCase().includes(q))
+      }
+    }
+
+    // Partition count filter
+    const minP = parseInt(minPartitions, 10)
+    if (minP > 0) {
+      result = result.filter((t) => t.partitions >= minP)
+    }
+
+    return result
+  }, [topics, search, regexEnabled, regexError, minPartitions])
 
   const makeTarget = (topic: Topic): TopicTarget => ({
     profileId,
@@ -103,7 +142,10 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
   })
 
   const groupedTopicNames = new Set(topicGroups.flatMap((g) => g.topics))
-  const ungrouped = filtered.filter((t) => !groupedTopicNames.has(t.name))
+  const pinnedSet = new Set(pinnedTopics)
+  const pinnedFiltered = filtered.filter((t) => pinnedSet.has(t.name))
+  const ungrouped = filtered.filter((t) => !groupedTopicNames.has(t.name) && !pinnedSet.has(t.name))
+  const mainList = topicGroups.length > 0 || pinnedFiltered.length > 0 ? ungrouped : filtered.filter((t) => !pinnedSet.has(t.name))
 
   const toggleGroupCollapse = (groupId: string) => {
     setCollapsedGroups((prev) => {
@@ -160,6 +202,19 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
     }
   }
 
+  const handleTogglePin = async (topic: Topic) => {
+    try {
+      if (pinnedSet.has(topic.name)) {
+        await UnpinTopic(profileId, brokerId, topic.name)
+      } else {
+        await PinTopic(profileId, brokerId, topic.name)
+      }
+      await refreshProfile()
+    } catch (err) {
+      toast.error('Failed to update pin', { description: String(err) })
+    }
+  }
+
   const refreshProfile = async () => {
     const all = await ListProfiles()
     useProfileStore.getState().setProfiles(all ?? [])
@@ -176,13 +231,13 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
   }
 
   // Build flat list of visible topics for keyboard nav
-  const flatTopics: Topic[] = []
+  const flatTopics: Topic[] = [...pinnedFiltered]
   for (const group of topicGroups) {
     if (!collapsedGroups.has(group.id)) {
-      flatTopics.push(...filtered.filter((t) => group.topics.includes(t.name)))
+      flatTopics.push(...filtered.filter((t) => group.topics.includes(t.name) && !pinnedSet.has(t.name)))
     }
   }
-  flatTopics.push(...(topicGroups.length > 0 ? ungrouped : filtered))
+  flatTopics.push(...mainList)
 
   const handleTopicListKeyDown = (e: React.KeyboardEvent) => {
     if (flatTopics.length === 0) return
@@ -212,11 +267,13 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
           <TopicRow
             topic={topic}
             focused={focusedTopicIndex === flatIdx}
+            pinned={pinnedSet.has(topic.name)}
             onObserve={() => setObserveTarget(makeTarget(topic))}
             onConsume={() => setConsumeTarget(makeTarget(topic))}
             onProduce={() => setProduceTarget(makeTarget(topic))}
             onInfo={() => setInfoTarget(makeTarget(topic))}
             onDelete={() => setDeleteTopicTarget(makeTarget(topic))}
+            onTogglePin={() => handleTogglePin(topic)}
           />
         </div>
         {topicGroups.length > 0 && !groupId && (
@@ -262,12 +319,28 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
-            placeholder="Search topics..."
+            placeholder={regexEnabled ? 'Regex pattern...' : 'Search topics...'}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="h-7 pl-7 text-xs"
+            className={cn('h-7 pl-7 text-xs', regexError && 'border-destructive focus-visible:ring-destructive')}
           />
         </div>
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+          <Checkbox
+            checked={regexEnabled}
+            onCheckedChange={(v) => setRegexEnabled(v === true)}
+            className="h-3.5 w-3.5"
+          />
+          Regex
+        </label>
+        <Input
+          placeholder="Min partitions"
+          type="number"
+          min={0}
+          value={minPartitions}
+          onChange={(e) => setMinPartitions(e.target.value)}
+          className="h-7 w-28 text-xs"
+        />
         <Button
           variant="outline"
           size="sm"
@@ -324,9 +397,23 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
           </div>
         ) : (
           <>
+            {/* Pinned topics */}
+            {pinnedFiltered.length > 0 && (
+              <div className="mb-1">
+                <div className="flex items-center gap-1 px-1 py-1">
+                  <Star className="h-3 w-3 text-yellow-500 fill-yellow-500" />
+                  <span className="text-xs font-medium text-foreground/80">Pinned</span>
+                  <span className="text-[10px] text-muted-foreground ml-1">({pinnedFiltered.length})</span>
+                </div>
+                <div className="ml-4">
+                  {pinnedFiltered.map((t) => renderTopicRow(t))}
+                </div>
+              </div>
+            )}
+
             {/* Named groups */}
             {topicGroups.map((group) => {
-              const groupTopics = filtered.filter((t) => group.topics.includes(t.name))
+              const groupTopics = filtered.filter((t) => group.topics.includes(t.name) && !pinnedSet.has(t.name))
               const isCollapsed = collapsedGroups.has(group.id)
 
               return (
@@ -367,19 +454,19 @@ export function TopicsTab({ profileId, brokerId, brokerName }: Props) {
             })}
 
             {/* Ungrouped */}
-            {topicGroups.length > 0 && ungrouped.length > 0 && (
+            {(topicGroups.length > 0 || pinnedFiltered.length > 0) && mainList.length > 0 && (
               <div className="mb-1">
                 <div className="flex items-center gap-1 px-1 py-1">
                   <span className="text-xs font-medium text-muted-foreground">Ungrouped</span>
-                  <span className="text-[10px] text-muted-foreground ml-1">({ungrouped.length})</span>
+                  <span className="text-[10px] text-muted-foreground ml-1">({mainList.length})</span>
                 </div>
               </div>
             )}
-            {(topicGroups.length > 0 ? ungrouped : filtered).map((t) => renderTopicRow(t))}
+            {mainList.map((t) => renderTopicRow(t))}
 
             {filtered.length === 0 && search && (
               <p className="px-2 py-4 text-center text-xs text-muted-foreground">
-                No topics match "{search}"
+                {regexError ? 'Invalid regex pattern' : `No topics match "${search}"`}
               </p>
             )}
           </>

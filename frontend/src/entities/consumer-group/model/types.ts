@@ -41,6 +41,14 @@ export interface GroupPartitionLag {
   lag: number
 }
 
+// GroupMemberInfo describes a member of a consumer group.
+export interface GroupMemberInfo {
+  memberId: string
+  clientId: string
+  clientHost: string
+  topics: string[]
+}
+
 // TopicRate is the approximate message throughput for a single topic (from rate events).
 export interface TopicRate {
   topic: string

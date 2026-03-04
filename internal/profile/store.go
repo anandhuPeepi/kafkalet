@@ -368,6 +368,55 @@ func (s *Store) DeleteTopicGroup(profileID, brokerID, groupID string) error {
 	return apperr.NotFound("profile", profileID)
 }
 
+// PinTopic adds a topic to the broker's pinned list (if not already pinned).
+func (s *Store) PinTopic(profileID, brokerID, topic string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Profiles {
+		if s.data.Profiles[i].ID == profileID {
+			for j := range s.data.Profiles[i].Brokers {
+				if s.data.Profiles[i].Brokers[j].ID == brokerID {
+					for _, t := range s.data.Profiles[i].Brokers[j].PinnedTopics {
+						if t == topic {
+							return nil // already pinned
+						}
+					}
+					s.data.Profiles[i].Brokers[j].PinnedTopics = append(
+						s.data.Profiles[i].Brokers[j].PinnedTopics, topic,
+					)
+					return s.save()
+				}
+			}
+			return apperr.NotFound("broker", brokerID)
+		}
+	}
+	return apperr.NotFound("profile", profileID)
+}
+
+// UnpinTopic removes a topic from the broker's pinned list.
+func (s *Store) UnpinTopic(profileID, brokerID, topic string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Profiles {
+		if s.data.Profiles[i].ID == profileID {
+			for j := range s.data.Profiles[i].Brokers {
+				if s.data.Profiles[i].Brokers[j].ID == brokerID {
+					pinned := s.data.Profiles[i].Brokers[j].PinnedTopics
+					for k, t := range pinned {
+						if t == topic {
+							s.data.Profiles[i].Brokers[j].PinnedTopics = append(pinned[:k], pinned[k+1:]...)
+							return s.save()
+						}
+					}
+					return nil // not pinned, no-op
+				}
+			}
+			return apperr.NotFound("broker", brokerID)
+		}
+	}
+	return apperr.NotFound("profile", profileID)
+}
+
 // DeleteBroker removes a broker from a profile.
 func (s *Store) DeleteBroker(profileID, brokerID string) error {
 	s.mu.Lock()
