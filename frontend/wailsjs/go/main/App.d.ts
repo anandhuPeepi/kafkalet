@@ -90,6 +90,8 @@ export function SwitchProfile(arg1:string):Promise<void>;
 
 export function TestBrokerConnection(arg1:string,arg2:string):Promise<void>;
 
+export function TestConnectionDirect(arg1:Array<string>,arg2:profile.TLSConfig,arg3:profile.SASLConfig,arg4:string):Promise<void>;
+
 export function UpdateBroker(arg1:string,arg2:profile.Broker):Promise<void>;
 
 export function UpdateProfile(arg1:profile.Profile):Promise<void>;

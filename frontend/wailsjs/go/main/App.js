@@ -174,6 +174,10 @@ export function TestBrokerConnection(arg1, arg2) {
   return window['go']['main']['App']['TestBrokerConnection'](arg1, arg2);
 }
 
+export function TestConnectionDirect(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['TestConnectionDirect'](arg1, arg2, arg3, arg4);
+}
+
 export function UpdateBroker(arg1, arg2) {
   return window['go']['main']['App']['UpdateBroker'](arg1, arg2);
 }

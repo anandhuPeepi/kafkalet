@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -32,6 +32,7 @@ import {
 import {
   AddBrokerCredential,
   SetNamedCredentialPassword,
+  TestConnectionDirect,
   type profile,
 } from '@shared/api'
 import { useProfileStore, type NamedCredential } from '@entities/profile'
@@ -54,6 +55,9 @@ interface Props {
 
 export function CredentialFormDialog({ profileId, brokerId, open, onOpenChange }: Props) {
   const { upsertProfile, profiles } = useProfileStore()
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<string | null>(null)
+  const [autoTesting, setAutoTesting] = useState(false)
 
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),
@@ -68,10 +72,67 @@ export function CredentialFormDialog({ profileId, brokerId, open, onOpenChange }
   useEffect(() => {
     if (open) {
       form.reset()
+      setTestResult(null)
+      setAutoTesting(false)
     }
   }, [open])
 
+  const currentBroker = profiles
+    .find((p) => p.id === profileId)
+    ?.brokers.find((b) => b.id === brokerId)
+
+  const handleTest = async () => {
+    if (!currentBroker) return
+    const values = form.getValues()
+    setTesting(true)
+    setTestResult(null)
+    try {
+      await TestConnectionDirect(
+        currentBroker.addresses,
+        currentBroker.tls as unknown as profile.TLSConfig,
+        {
+          mechanism: values.mechanism,
+          username: values.username,
+          oauthTokenURL: '',
+          oauthClientID: '',
+          oauthScopes: [],
+        } as unknown as profile.SASLConfig,
+        values.password
+      )
+      setTestResult('Connection successful')
+    } catch (err) {
+      setTestResult(String(err))
+    } finally {
+      setTesting(false)
+    }
+  }
+
   const onSubmit = async (values: FormValues) => {
+    if (!currentBroker) return
+
+    // Auto-test before saving
+    setAutoTesting(true)
+    setTestResult(null)
+    try {
+      await TestConnectionDirect(
+        currentBroker.addresses,
+        currentBroker.tls as unknown as profile.TLSConfig,
+        {
+          mechanism: values.mechanism,
+          username: values.username,
+          oauthTokenURL: '',
+          oauthClientID: '',
+          oauthScopes: [],
+        } as unknown as profile.SASLConfig,
+        values.password
+      )
+    } catch (err) {
+      setTestResult(String(err))
+      setAutoTesting(false)
+      return
+    }
+    setAutoTesting(false)
+
     try {
       const newCred = await AddBrokerCredential(profileId, brokerId, {
         id: '',
@@ -177,10 +238,19 @@ export function CredentialFormDialog({ profileId, brokerId, open, onOpenChange }
             {form.formState.errors.root && (
               <p className="text-sm text-destructive">{form.formState.errors.root.message}</p>
             )}
-            <DialogFooter>
-              <Button type="submit" disabled={form.formState.isSubmitting}>
-                {form.formState.isSubmitting && <Loader2 className="animate-spin" />}
-                Add
+            {testResult && (
+              <p className={testResult === 'Connection successful' ? 'text-sm text-green-500' : 'text-sm text-destructive'}>
+                {testResult}
+              </p>
+            )}
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={handleTest} disabled={testing || !currentBroker}>
+                {testing && <Loader2 className="animate-spin" />}
+                Test Connection
+              </Button>
+              <Button type="submit" disabled={form.formState.isSubmitting || autoTesting}>
+                {(form.formState.isSubmitting || autoTesting) && <Loader2 className="animate-spin" />}
+                {autoTesting ? 'Testing...' : 'Add'}
               </Button>
             </DialogFooter>
           </form>

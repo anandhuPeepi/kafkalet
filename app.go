@@ -381,6 +381,22 @@ func (a *App) ClearActiveBrokerCredential(profileID, brokerID string) error {
 	return a.profileStore.ClearActiveBrokerCredential(profileID, brokerID)
 }
 
+// TestConnectionDirect tests a broker connection using inline parameters,
+// without requiring a saved broker. Useful for testing credentials before saving.
+func (a *App) TestConnectionDirect(
+	addresses []string,
+	tls profile.TLSConfig,
+	sasl profile.SASLConfig,
+	password string,
+) error {
+	b := profile.Broker{
+		Addresses: addresses,
+		SASL:      sasl,
+		TLS:       tls,
+	}
+	return broker.TestConnection(a.ctx, b, password)
+}
+
 // TestBrokerConnection fetches the password from the keychain and sends an
 // ApiVersions request to verify the broker is reachable.
 func (a *App) TestBrokerConnection(profileID, brokerID string) error {
