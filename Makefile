@@ -11,12 +11,18 @@ dev: ## Start development server with hot reload
 
 build: ## Build for current platform
 	wails build
+	@if [ "$$(uname)" = "Darwin" ] && [ -d build/bin/kafkalet.app ]; then \
+		codesign --force --deep -s - build/bin/kafkalet.app; \
+		echo "✓ ad-hoc signed: build/bin/kafkalet.app"; \
+	fi
 
 build-mac: ## Build for macOS Intel (darwin/amd64)
 	wails build -platform darwin/amd64
+	codesign --force --deep -s - build/bin/kafkalet.app
 
 build-mac-arm: ## Build for macOS Apple Silicon (darwin/arm64)
 	wails build -platform darwin/arm64
+	codesign --force --deep -s - build/bin/kafkalet.app
 
 build-win: ## Build for Windows amd64 with NSIS installer
 	wails build -platform windows/amd64 -nsis

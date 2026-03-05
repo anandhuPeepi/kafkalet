@@ -2,4 +2,4 @@
 .claude/
 CLAUDE.md
 docs/*
-!docs/improvement-plan.md
+build/
