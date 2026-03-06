@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -16,6 +17,7 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 	"kafkalet/internal/apperr"
 	"kafkalet/internal/broker"
+	"kafkalet/internal/config"
 	"kafkalet/internal/plugin"
 	"kafkalet/internal/profile"
 	"kafkalet/internal/schema"
@@ -234,6 +236,9 @@ type exportBroker struct {
 	Credentials            []exportCredential           `json:"credentials,omitempty"`
 	TopicGroups            []profile.TopicGroup         `json:"topicGroups,omitempty"`
 	PinnedTopics           []string                     `json:"pinnedTopics,omitempty"`
+	CACertPEM              string                       `json:"caCertPEM,omitempty"`
+	ClientCertPEM          string                       `json:"clientCertPEM,omitempty"`
+	ClientKeyPEM           string                       `json:"clientKeyPEM,omitempty"`
 }
 
 type exportCredential struct {
@@ -273,9 +278,35 @@ func (a *App) ExportSettings(includeSecrets bool) error {
 				TopicGroups:        b.TopicGroups,
 				PinnedTopics:       b.PinnedTopics,
 			}
+			// Clear cert paths from export — they are machine-specific.
+			// PEM contents are exported separately (when includeSecrets=true).
+			eb.TLS.CACertPath = ""
+			eb.TLS.ClientCertPath = ""
+			eb.TLS.ClientKeyPath = ""
 			if includeSecrets {
 				eb.SASLPassword, _ = profile.GetPassword(p.ID, b.ID)
 				eb.SchemaRegistryPassword, _ = profile.GetSchemaRegistryPassword(p.ID, b.ID)
+				if b.TLS.CACertPath != "" {
+					if pem, err := os.ReadFile(b.TLS.CACertPath); err == nil {
+						eb.CACertPEM = string(pem)
+					} else {
+						slog.Warn("export: read CA cert", "path", b.TLS.CACertPath, "err", err)
+					}
+				}
+				if b.TLS.ClientCertPath != "" {
+					if pem, err := os.ReadFile(b.TLS.ClientCertPath); err == nil {
+						eb.ClientCertPEM = string(pem)
+					} else {
+						slog.Warn("export: read client cert", "path", b.TLS.ClientCertPath, "err", err)
+					}
+				}
+				if b.TLS.ClientKeyPath != "" {
+					if pem, err := os.ReadFile(b.TLS.ClientKeyPath); err == nil {
+						eb.ClientKeyPEM = string(pem)
+					} else {
+						slog.Warn("export: read client key", "path", b.TLS.ClientKeyPath, "err", err)
+					}
+				}
 			}
 			for _, cred := range b.Credentials {
 				ec := exportCredential{ID: cred.ID, Name: cred.Name, SASL: cred.SASL}
@@ -298,7 +329,7 @@ func (a *App) ExportSettings(includeSecrets bool) error {
 
 // ImportSettings reads profiles from a user-chosen JSON file and merges them
 // (adds profiles not already present by ID), restoring passwords to keychain.
-/// SelectCertificateFile opens a native file dialog for selecting certificate/key files.
+// SelectCertificateFile opens a native file dialog for selecting certificate/key files.
 func (a *App) SelectCertificateFile() (string, error) {
 	return runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
 		Title: "Select Certificate File",
@@ -357,6 +388,16 @@ func (a *App) ImportSettings() error {
 				b.Credentials = append(b.Credentials, profile.NamedCredential{
 					ID: ec.ID, Name: ec.Name, SASL: ec.SASL,
 				})
+			}
+			// Restore embedded TLS certificates to app data
+			if p, err := writeCertFile(b.ID, "ca.pem", eb.CACertPEM); err == nil && p != "" {
+				b.TLS.CACertPath = p
+			}
+			if p, err := writeCertFile(b.ID, "client-cert.pem", eb.ClientCertPEM); err == nil && p != "" {
+				b.TLS.ClientCertPath = p
+			}
+			if p, err := writeCertFile(b.ID, "client-key.pem", eb.ClientKeyPEM); err == nil && p != "" {
+				b.TLS.ClientKeyPath = p
 			}
 			// Migrate legacy SASL to credential
 			if b.SASL.Mechanism != "" && len(b.Credentials) == 0 {
@@ -432,11 +473,81 @@ func (a *App) SwitchProfile(id string) error {
 
 // ── Broker management ─────────────────────────────────────────────────────────
 
+// copyCertToAppData copies a certificate file into the app config directory.
+// Returns the new path, or empty string if srcPath is empty.
+func copyCertToAppData(brokerID, filename, srcPath string) (string, error) {
+	if srcPath == "" {
+		return "", nil
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		return srcPath, fmt.Errorf("config dir: %w", err)
+	}
+	if strings.HasPrefix(srcPath, dir) {
+		return srcPath, nil // already inside app data
+	}
+	certsDir := filepath.Join(dir, "certs", brokerID)
+	if err := os.MkdirAll(certsDir, 0o755); err != nil {
+		return srcPath, fmt.Errorf("create certs dir: %w", err)
+	}
+	data, err := os.ReadFile(srcPath)
+	if err != nil {
+		return srcPath, fmt.Errorf("read cert %s: %w", srcPath, err)
+	}
+	dst := filepath.Join(certsDir, filename)
+	if err := os.WriteFile(dst, data, 0o600); err != nil {
+		return srcPath, fmt.Errorf("write cert %s: %w", dst, err)
+	}
+	return dst, nil
+}
+
+// writeCertFile writes PEM content directly to the app config directory.
+// Returns the new path, or empty string if content is empty.
+func writeCertFile(brokerID, filename, pemContent string) (string, error) {
+	if pemContent == "" {
+		return "", nil
+	}
+	dir, err := config.Dir()
+	if err != nil {
+		return "", fmt.Errorf("config dir: %w", err)
+	}
+	certsDir := filepath.Join(dir, "certs", brokerID)
+	if err := os.MkdirAll(certsDir, 0o755); err != nil {
+		return "", fmt.Errorf("create certs dir: %w", err)
+	}
+	dst := filepath.Join(certsDir, filename)
+	if err := os.WriteFile(dst, []byte(pemContent), 0o600); err != nil {
+		return "", fmt.Errorf("write cert %s: %w", dst, err)
+	}
+	return dst, nil
+}
+
+// copyBrokerCerts copies TLS certificate files into app data if they are external.
+func copyBrokerCerts(b *profile.Broker) error {
+	var err error
+	if b.TLS.CACertPath, err = copyCertToAppData(b.ID, "ca.pem", b.TLS.CACertPath); err != nil {
+		return err
+	}
+	if b.TLS.ClientCertPath, err = copyCertToAppData(b.ID, "client-cert.pem", b.TLS.ClientCertPath); err != nil {
+		return err
+	}
+	if b.TLS.ClientKeyPath, err = copyCertToAppData(b.ID, "client-key.pem", b.TLS.ClientKeyPath); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (a *App) AddBroker(profileID string, b profile.Broker) (profile.Broker, error) {
+	if err := copyBrokerCerts(&b); err != nil {
+		return profile.Broker{}, fmt.Errorf("copy certs: %w", err)
+	}
 	return a.profileStore.AddBroker(profileID, b)
 }
 
 func (a *App) UpdateBroker(profileID string, b profile.Broker) error {
+	if err := copyBrokerCerts(&b); err != nil {
+		return fmt.Errorf("copy certs: %w", err)
+	}
 	return a.profileStore.UpdateBroker(profileID, b)
 }
 
